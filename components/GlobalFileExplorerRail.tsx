@@ -24,6 +24,22 @@ import { TitleBarFileExplorerToggle } from "@/components/TitleBarFileExplorerTog
 import type { RootChoice } from "../shared";
 import type { rpcContract } from "../contract";
 
+/** Window event other plugins dispatch to open the rail on its Changes tab. */
+const SHOW_CHANGES_EVENT = "bb-plugin-workbench-explorer:show-changes";
+/** Window event (and global with the latest value) carrying the Changes tab's counts. */
+const CHANGES_SUMMARY_EVENT = "bb-plugin-workbench-explorer:changes-summary";
+const CHANGES_SUMMARY_GLOBAL = "__bbWorkbenchExplorerChanges";
+
+interface ExplorerChangesSummary {
+  threadId: string | null;
+  uncommitted: number;
+  branch: number;
+  /** Distinct files across both lists. */
+  total: number;
+  base: string | null;
+  pullRequest: number | null;
+}
+
 const ROOT_STORAGE_KEY = "bb-plugin-workbench-explorer:pinned-root";
 
 /** The views the rail carries: names, the text inside them, and what changed. */
@@ -89,6 +105,17 @@ export function GlobalFileExplorerRail() {
   // A right-clicked "Find in Folder" opens the tab that answers it. The panel
   // reads the same request and scopes its query to that folder.
   const findInFolder = useSyncExternalStore(subscribeFindInFolder, getFindInFolder);
+  // Another plugin (conductor-actions' header "Changes" button) asks for the
+  // Changes tab: open the rail on it.
+  useEffect(() => {
+    const showChanges = () => {
+      writeStoredOpen(true);
+      setTab("changes");
+      writeStoredTab("changes");
+    };
+    window.addEventListener(SHOW_CHANGES_EVENT, showChanges);
+    return () => window.removeEventListener(SHOW_CHANGES_EVENT, showChanges);
+  }, []);
   useEffect(() => subscribeTextSearch(() => {
     writeStoredOpen(true);
     setTab("search");
@@ -166,7 +193,23 @@ export function GlobalFileExplorerRail() {
   }, [rpc, threadId, projectId, pinnedThreadId, selectedId, refreshCount, values?.treeRoot]);
 
   const chosen = choices.find((choice) => choice.id === selectedId);
-  const changeCount = useGitStatus(chosen?.workspace.rootId ?? null).result.entries.length;
+  const gitStatus = useGitStatus(chosen?.workspace.rootId ?? null).result;
+  const changeCount = gitStatus.entries.length;
+  // Tell other plugins what the Changes tab holds for the open thread, so a
+  // header button can show the count without polling git a second time.
+  useEffect(() => {
+    const branchPaths = gitStatus.branch?.entries.map((entry) => entry.path) ?? [];
+    const detail: ExplorerChangesSummary = {
+      threadId,
+      uncommitted: gitStatus.entries.length,
+      branch: branchPaths.length,
+      total: new Set([...gitStatus.entries.map((entry) => entry.path), ...branchPaths]).size,
+      base: gitStatus.branch?.base ?? null,
+      pullRequest: gitStatus.branch?.pullRequest ?? null,
+    };
+    (window as unknown as Record<string, unknown>)[CHANGES_SUMMARY_GLOBAL] = detail;
+    window.dispatchEvent(new CustomEvent(CHANGES_SUMMARY_EVENT, { detail }));
+  }, [gitStatus, threadId]);
   const railOpen = ready && open;
   useLayoutEffect(() => {
     if (!railOpen || compact) {
