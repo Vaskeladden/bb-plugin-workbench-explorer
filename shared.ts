@@ -23,6 +23,10 @@ export const gitStatusEntrySchema = z.object({
   /** Relative to the explorer root. */
   path: z.string(),
   status: z.enum(["conflicted", "deleted", "modified", "renamed", "added", "untracked"]),
+  /** The index differs from HEAD (staged). Absent on branch entries. */
+  staged: z.boolean().optional(),
+  /** The working tree differs from the index, or the file is untracked. */
+  unstaged: z.boolean().optional(),
 });
 
 export const gitStatusResultSchema = z.object({
@@ -31,6 +35,11 @@ export const gitStatusResultSchema = z.object({
   entries: z.array(gitStatusEntrySchema),
   /** The repository had more changes than the explorer colours. */
   truncated: z.boolean(),
+  /**
+   * Files the branch's commits changed since it left the default branch
+   * (merge-base..HEAD). Null on the default branch itself or without a remote.
+   */
+  branch: z.object({ base: z.string(), commits: z.number().int().nonnegative(), entries: z.array(gitStatusEntrySchema) }).nullable().optional(),
 });
 export type GitStatusResult = z.infer<typeof gitStatusResultSchema>;
 

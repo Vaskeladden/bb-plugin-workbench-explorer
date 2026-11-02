@@ -27,8 +27,17 @@ export const rpcContract = defineRpcContract({
     output: gitStatusResultSchema,
   },
   /** One file's uncommitted change as a unified patch; null when there is none. */
+  /** Stage, unstage or discard uncommitted files under a root. */
+  gitAction: {
+    input: z.object({
+      rootId: z.string().min(1),
+      action: z.enum(["stage", "unstage", "discard"]),
+      relativePaths: z.array(z.string().min(1).max(4096)).min(1).max(2000),
+    }).strict(),
+    output: z.object({ ok: z.boolean(), message: z.string() }),
+  },
   gitDiff: {
-    input: z.object({ rootId: z.string().min(1), relativePath: z.string().min(1).max(4096) }).strict(),
+    input: z.object({ rootId: z.string().min(1), relativePath: z.string().min(1).max(4096), against: z.enum(["head", "base"]).optional() }).strict(),
     output: z.discriminatedUnion("ok", [
       z.object({ ok: z.literal(true), patch: z.string().nullable() }),
       z.object({ ok: z.literal(false), message: z.string() }),

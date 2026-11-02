@@ -46,8 +46,17 @@ export const hostContract = defineRpcContract({
     output: gitStatusResultSchema,
   },
   gitDiff: {
-    input: z.object({ rootPath: z.string().min(1), relativePath: z.string().min(1) }).strict(),
+    input: z.object({ rootPath: z.string().min(1), relativePath: z.string().min(1), against: z.enum(["head", "base"]).optional() }).strict(),
     output: z.object({ patch: z.string().nullable() }).strict(),
+  },
+  /** Stage, unstage or discard files `git status` lists under the root. */
+  gitAction: {
+    input: z.object({
+      rootPath: z.string().min(1),
+      action: z.enum(["stage", "unstage", "discard"]),
+      relativePaths: z.array(z.string().min(1)).min(1).max(2000),
+    }).strict(),
+    output: z.object({ ok: z.boolean(), message: z.string() }).strict(),
   },
   /** Move to this machine's Trash; `trashedPath` is null where there is none and the delete was permanent. */
   trashPath: {

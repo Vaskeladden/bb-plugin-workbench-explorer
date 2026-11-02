@@ -25,11 +25,22 @@ interface Store {
 /** One poll per root, shared by the tree and the Changes tab. */
 const stores = new Map<string, Store>();
 
+function sameEntries(left: GitStatusResult["entries"], right: GitStatusResult["entries"]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((entry, index) => {
+    const other = right[index]!;
+    return entry.path === other.path && entry.status === other.status
+      && entry.staged === other.staged && entry.unstaged === other.unstaged;
+  });
+}
+
 function sameResult(left: GitStatusResult, right: GitStatusResult): boolean {
   if (left.isRepository !== right.isRepository || left.truncated !== right.truncated) return false;
-  if (left.entries.length !== right.entries.length) return false;
-  return left.entries.every((entry, index) =>
-    entry.path === right.entries[index]!.path && entry.status === right.entries[index]!.status);
+  if (!sameEntries(left.entries, right.entries)) return false;
+  const a = left.branch ?? null;
+  const b = right.branch ?? null;
+  if (a === null || b === null) return a === b;
+  return a.base === b.base && a.commits === b.commits && sameEntries(a.entries, b.entries);
 }
 
 async function refresh(rootId: string): Promise<void> {
