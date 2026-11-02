@@ -295,49 +295,11 @@ export function mountChatPathButtons(
       sweepAgain = false;
       return;
     }
-    expireLocal(known, verdictCache.recall(threadId));
-    let codes = 0;
-    let candidates = 0;
-    let wanted = 0;
-    // Links too, not just code spans: bb renders file mentions as anchors and
-    // gives them its own "open" glyph, which is a different action from
-    // revealing the file in the tree.
+    // Reveal buttons are off in this fork: each insert and removal re-wrapped
+    // the chat line around it, and bb's own glyph already opens the file. The
+    // sweep only fixes file links bb pointed at a missing path, which changes
+    // attributes, never layout.
     sweepAnchors();
-    for (const code of chatQuery<Element>("code, a")) {
-      // A `<code>` inside an `<a>` matches twice; let the inner one win so the
-      // path gets one button, not two.
-      const previewPath = code instanceof HTMLAnchorElement && hasNativePreviewGlyph(code)
-        ? anchorTargetPath(code)
-        : null;
-      if (previewPath === null && code.querySelector("code, a") !== null) continue;
-      if (!(code instanceof HTMLAnchorElement) && code.closest("a") !== null &&
-        hasNativePreviewGlyph(code.closest("a") as HTMLAnchorElement)) continue;
-      codes += 1;
-      const path = previewPath ?? candidateOf(code);
-      if (path === null) {
-        code.querySelector(`button[${BUTTON_ATTR}]`)?.remove();
-        continue;
-      }
-      candidates += 1;
-      const verdict = known.get(path);
-      if (verdict === true) {
-        wanted += 1;
-        ensureButton(code, path);
-        continue;
-      }
-      if (verdict === false) continue;
-      pending.add(path);
-    }
-    if (pending.size > 0) scheduleFlush();
-
-    // A live chat mutates constantly, so only report when the numbers that
-    // actually matter move — otherwise this logs once a second forever.
-    const present = document.querySelectorAll(`button[${BUTTON_ATTR}]`).length;
-    const line = `sweep known=${wanted} buttonsInDom=${present}`;
-    if (line !== lastReport) {
-      lastReport = line;
-      report(`${line} (codes=${codes} candidates=${candidates})`);
-    }
     if (sweepAgain) {
       sweepAgain = false;
       // During streaming, coalesce message mutations into at most one full
