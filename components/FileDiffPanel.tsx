@@ -20,12 +20,14 @@ export interface FileDiffParams {
   rootPath?: string;
   /** "base": what the branch's commits changed since the default branch. */
   against?: "base";
+  /** The pull request whose head the base diff reads, when the checkout is on the default branch. */
+  pullRequest?: number;
 }
 
 /** Tab params round-trip through persistence, so they are checked, not trusted. */
 export function parseFileDiffParams(params: JsonValue | null): FileDiffParams | null {
   if (params === null || typeof params !== "object" || Array.isArray(params)) return null;
-  const { rootId, relativePath, hostId, rootPath, against } = params as Record<string, JsonValue>;
+  const { rootId, relativePath, hostId, rootPath, against, pullRequest } = params as Record<string, JsonValue>;
   if (typeof rootId !== "string" || rootId === "") return null;
   if (typeof relativePath !== "string" || relativePath === "") return null;
   return {
@@ -33,6 +35,7 @@ export function parseFileDiffParams(params: JsonValue | null): FileDiffParams | 
     relativePath,
     ...(typeof hostId === "string" && typeof rootPath === "string" ? { hostId, rootPath } : {}),
     ...(against === "base" ? { against: "base" as const } : {}),
+    ...(typeof pullRequest === "number" && Number.isInteger(pullRequest) && pullRequest > 0 ? { pullRequest } : {}),
   };
 }
 
@@ -51,6 +54,7 @@ export function FileDiffPanel({ threadId, params }: { threadId: string; params: 
   const hostId = target?.hostId ?? null;
   const rootPath = target?.rootPath ?? null;
   const against = target?.against ?? null;
+  const pullRequest = target?.pullRequest ?? null;
   const [rootId, setRootId] = useState<string | null>(target?.rootId ?? null);
   useEffect(() => setRootId(target?.rootId ?? null), [target?.rootId]);
 
@@ -72,7 +76,7 @@ export function FileDiffPanel({ threadId, params }: { threadId: string; params: 
     };
     const load = () => {
       if (document.visibilityState === "hidden") return;
-      rpc.call("gitDiff", { rootId, relativePath, ...(against === null ? {} : { against }) })
+      rpc.call("gitDiff", { rootId, relativePath, ...(against === null ? {} : { against }), ...(pullRequest === null ? {} : { pullRequest }) })
         .then(async (result) => {
           if (!result.ok && await reresolve()) return;
           if (cancelled) return;
@@ -96,7 +100,7 @@ export function FileDiffPanel({ threadId, params }: { threadId: string; params: 
       cancelled = true;
       clearInterval(timer);
     };
-  }, [rpc, rootId, relativePath, hostId, rootPath, threadId, against]);
+  }, [rpc, rootId, relativePath, hostId, rootPath, threadId, against, pullRequest]);
 
   if (target === null) {
     return <p className="p-4 text-sm text-muted-foreground">Open a file from the File Explorer's Changes tab to see its diff.</p>;

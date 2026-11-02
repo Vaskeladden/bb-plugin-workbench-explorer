@@ -39,7 +39,13 @@ export const gitStatusResultSchema = z.object({
    * Files the branch's commits changed since it left the default branch
    * (merge-base..HEAD). Null on the default branch itself or without a remote.
    */
-  branch: z.object({ base: z.string(), commits: z.number().int().nonnegative(), entries: z.array(gitStatusEntrySchema) }).nullable().optional(),
+  branch: z.object({
+    base: z.string(),
+    commits: z.number().int().nonnegative(),
+    entries: z.array(gitStatusEntrySchema),
+    /** Set when the files are the thread's pull request, fetched from GitHub, because the checkout itself sits on the default branch. */
+    pullRequest: z.number().int().positive().nullable().optional(),
+  }).nullable().optional(),
 });
 export type GitStatusResult = z.infer<typeof gitStatusResultSchema>;
 

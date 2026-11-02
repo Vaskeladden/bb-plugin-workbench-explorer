@@ -23,7 +23,7 @@ export const rpcContract = defineRpcContract({
   },
   /** Uncommitted changes under a root, for colouring the tree and the Changes tab. */
   gitStatus: {
-    input: z.object({ rootId: z.string().min(1) }).strict(),
+    input: z.object({ rootId: z.string().min(1), threadId: z.string().min(1).nullable().optional() }).strict(),
     output: gitStatusResultSchema,
   },
   /** One file's uncommitted change as a unified patch; null when there is none. */
@@ -37,7 +37,7 @@ export const rpcContract = defineRpcContract({
     output: z.object({ ok: z.boolean(), message: z.string() }),
   },
   gitDiff: {
-    input: z.object({ rootId: z.string().min(1), relativePath: z.string().min(1).max(4096), against: z.enum(["head", "base"]).optional() }).strict(),
+    input: z.object({ rootId: z.string().min(1), relativePath: z.string().min(1).max(4096), against: z.enum(["head", "base"]).optional(), pullRequest: z.number().int().positive().optional() }).strict(),
     output: z.discriminatedUnion("ok", [
       z.object({ ok: z.literal(true), patch: z.string().nullable() }),
       z.object({ ok: z.literal(false), message: z.string() }),

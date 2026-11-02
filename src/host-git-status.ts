@@ -19,6 +19,54 @@ export interface HostBranchChanges {
   base: string;
   commits: number;
   entries: GitStatusEntry[];
+  pullRequest?: number | null;
+}
+
+export interface PullRequestRef {
+  /** owner/name on GitHub. */
+  repo: string;
+  number: number;
+}
+
+/** Where a fetched pull request head is kept; never a branch, so nothing checks it out. */
+function pullRequestRef(number: number): string {
+  return `refs/bb-explorer/pr/${number}`;
+}
+
+const PR_FETCH_MS = 60_000;
+const pullRequestFetchedAt = new Map<string, number>();
+
+async function refExists(rootPath: string, ref: string): Promise<boolean> {
+  return (await git(rootPath, ["rev-parse", "--verify", "--quiet", ref])) !== null;
+}
+
+/**
+ * Keep `refs/bb-explorer/pr/<n>` at the pull request's head, fetched from
+ * GitHub's refs/pull/<n>/head at most once a minute. Only when origin is the
+ * pull request's repository. True when the ref is there to compare.
+ */
+async function ensurePullRequestRef(rootPath: string, pr: PullRequestRef): Promise<boolean> {
+  const origin = (await git(rootPath, ["remote", "get-url", "origin"]))?.trim().toLowerCase().replace(/\.git$/u, "") ?? "";
+  const slug = pr.repo.toLowerCase();
+  if (!(origin.endsWith(`/${slug}`) || origin.endsWith(`:${slug}`))) return false;
+  const ref = pullRequestRef(pr.number);
+  const exists = await refExists(rootPath, ref);
+  const key = `${origin}#${pr.number}`;
+  if (Date.now() - (pullRequestFetchedAt.get(key) ?? 0) > PR_FETCH_MS) {
+    pullRequestFetchedAt.set(key, Date.now());
+    const fetching = gitLong(rootPath, ["fetch", "--quiet", "--no-tags", "origin", `+refs/pull/${pr.number}/head:${ref}`]);
+    // The first time, wait for it; after that the list shows the last fetch
+    // while the next one runs.
+    if (!exists) await fetching;
+  }
+  return exists || refExists(rootPath, ref);
+}
+
+function gitLong(cwd: string, args: readonly string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile("git", ["-C", cwd, ...args], { maxBuffer: MAX_OUTPUT_BYTES, timeout: 60_000, windowsHide: true },
+      (error, stdout) => resolve(error === null ? stdout : null));
+  });
 }
 
 function git(cwd: string, args: readonly string[]): Promise<string | null> {
@@ -37,7 +85,7 @@ function git(cwd: string, args: readonly string[]): Promise<string | null> {
  * `rootPath`. The root can be a subdirectory of the repository — a monorepo
  * package pinned as a project — so changes outside it are dropped.
  */
-export async function hostGitStatus(rootPath: string): Promise<HostGitStatus> {
+export async function hostGitStatus(rootPath: string, pullRequest: PullRequestRef | null = null): Promise<HostGitStatus> {
   const prefixOutput = await git(rootPath, ["rev-parse", "--show-prefix"]);
   if (prefixOutput === null) return { isRepository: false, entries: [], truncated: false };
   const prefix = prefixOutput.trim();
@@ -56,7 +104,7 @@ export async function hostGitStatus(rootPath: string): Promise<HostGitStatus> {
     isRepository: true,
     entries: entries.slice(0, MAX_ENTRIES),
     truncated: entries.length > MAX_ENTRIES,
-    branch: await hostBranchChanges(rootPath).catch(() => null),
+    branch: await hostBranchChanges(rootPath, pullRequest).catch(() => null),
   };
 }
 
@@ -66,8 +114,8 @@ async function defaultBase(rootPath: string): Promise<string> {
   return ref !== undefined && ref !== "" ? ref.replace(/^origin\//u, "") : "main";
 }
 
-async function mergeBase(rootPath: string, base: string): Promise<string | null> {
-  return (await git(rootPath, ["merge-base", "HEAD", `origin/${base}`]))?.trim() || null;
+async function mergeBase(rootPath: string, base: string, head = "HEAD"): Promise<string | null> {
+  return (await git(rootPath, ["merge-base", head, `origin/${base}`]))?.trim() || null;
 }
 
 /**
@@ -75,18 +123,26 @@ async function mergeBase(rootPath: string, base: string): Promise<string | null>
  * pull request would show it: merge-base..HEAD, limited to the root.
  * Uncommitted work is the status list's business, not this one's.
  */
-export async function hostBranchChanges(rootPath: string): Promise<HostBranchChanges | null> {
+export async function hostBranchChanges(rootPath: string, pr: PullRequestRef | null = null): Promise<HostBranchChanges | null> {
   const base = await defaultBase(rootPath);
   const current = (await git(rootPath, ["branch", "--show-current"]))?.trim();
-  if (current === base) return null;
-  const fork = await mergeBase(rootPath, base);
+  let head = "HEAD";
+  let pullRequest: number | null = null;
+  if (current === base) {
+    // A checkout on the default branch has no branch of its own to compare.
+    // A thread that opened a pull request from it still has one: compare that.
+    if (pr === null || !(await ensurePullRequestRef(rootPath, pr))) return null;
+    head = pullRequestRef(pr.number);
+    pullRequest = pr.number;
+  }
+  const fork = await mergeBase(rootPath, base, head);
   if (fork === null) return null;
-  const count = Number((await git(rootPath, ["rev-list", "--count", `${fork}..HEAD`]))?.trim() ?? "0");
-  if (count === 0) return { base, commits: 0, entries: [] };
+  const count = Number((await git(rootPath, ["rev-list", "--count", `${fork}..${head}`]))?.trim() ?? "0");
+  if (count === 0) return { base, commits: 0, entries: [], pullRequest };
   const output = await git(rootPath, [
-    "--no-optional-locks", "diff", "--name-status", "-z", "--find-renames", "--relative", fork, "HEAD",
+    "--no-optional-locks", "diff", "--name-status", "-z", "--find-renames", "--relative", fork, head,
   ]);
-  return { base, commits: Number.isFinite(count) ? count : 0, entries: parseNameStatusZ(output ?? "").slice(0, MAX_ENTRIES) };
+  return { base, commits: Number.isFinite(count) ? count : 0, entries: parseNameStatusZ(output ?? "").slice(0, MAX_ENTRIES), pullRequest };
 }
 
 /** A diff past this size is not worth drawing in a panel. */
@@ -97,13 +153,19 @@ const MAX_PATCH_BYTES = 2 * 1024 * 1024;
  * tracked file, against nothing for an untracked one. Null when there is no
  * change to show, or the patch is too large.
  */
-export async function hostGitDiff(rootPath: string, relativePath: string, against: "head" | "base" = "head"): Promise<string | null> {
+export async function hostGitDiff(
+  rootPath: string,
+  relativePath: string,
+  against: "head" | "base" = "head",
+  pullRequest: number | null = null,
+): Promise<string | null> {
   if (against === "base") {
-    // The file as the branch's commits changed it since the default branch.
-    const fork = await mergeBase(rootPath, await defaultBase(rootPath));
+    // The file as the branch's commits (or the pull request's) changed it since the default branch.
+    const head = pullRequest !== null && await refExists(rootPath, pullRequestRef(pullRequest)) ? pullRequestRef(pullRequest) : "HEAD";
+    const fork = await mergeBase(rootPath, await defaultBase(rootPath), head);
     if (fork === null) return null;
     const patch = await git(rootPath, [
-      "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", "--find-renames", fork, "HEAD", "--", relativePath,
+      "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", "--find-renames", fork, head, "--", relativePath,
     ]);
     if (patch === null || patch.trim() === "" || patch.length > MAX_PATCH_BYTES) return null;
     return patch;

@@ -95,6 +95,7 @@ export function ChangesPanel({ root }: { root: Workspace | null }) {
         hostId: root.hostId,
         rootPath: root.rootPath,
         ...(against === "base" ? { against: "base" } : {}),
+        ...(against === "base" && branch?.pullRequest ? { pullRequest: branch.pullRequest } : {}),
       },
     }) ?? false;
     if (!opened) toast.error("Open a thread to see diffs.");
@@ -208,7 +209,7 @@ export function ChangesPanel({ root }: { root: Workspace | null }) {
         {branch !== null && branchEntries.length > 0 ? (
           <Group
             id="branch"
-            title={`vs ${branch.base}`}
+            title={branch.pullRequest ? `#${branch.pullRequest} vs ${branch.base}` : `vs ${branch.base}`}
             subtitle={`${branch.commits} commit${branch.commits === 1 ? "" : "s"}`}
             count={branchEntries.length}
             collapsed={collapsed.has("branch")}

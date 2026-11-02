@@ -42,11 +42,15 @@ export const hostContract = defineRpcContract({
   },
   /** Working-tree status, run with the machine's own git where the root lives. */
   gitStatus: {
-    input: z.object({ rootPath: z.string().min(1) }).strict(),
+    input: z.object({
+      rootPath: z.string().min(1),
+      /** The thread's pull request, compared with the default branch when the checkout is on it. */
+      pullRequest: z.object({ repo: z.string().min(3), number: z.number().int().positive() }).strict().optional(),
+    }).strict(),
     output: gitStatusResultSchema,
   },
   gitDiff: {
-    input: z.object({ rootPath: z.string().min(1), relativePath: z.string().min(1), against: z.enum(["head", "base"]).optional() }).strict(),
+    input: z.object({ rootPath: z.string().min(1), relativePath: z.string().min(1), against: z.enum(["head", "base"]).optional(), pullRequest: z.number().int().positive().optional() }).strict(),
     output: z.object({ patch: z.string().nullable() }).strict(),
   },
   /** Stage, unstage or discard files `git status` lists under the root. */

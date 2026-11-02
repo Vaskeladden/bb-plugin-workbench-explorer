@@ -16,7 +16,7 @@ export default experimental_defineHostEntry({
     searchInFiles: ({ rootPath, ignoredFolders, ...input }) =>
       searchHostInFiles(rootPath, input, new Set(ignoredFolders)),
     removePath: ({ rootPath, relativePath }) => removeHostPath(rootPath, relativePath),
-    gitStatus: ({ rootPath }) => hostGitStatus(rootPath),
+    gitStatus: ({ rootPath, pullRequest }) => hostGitStatus(rootPath, pullRequest ?? null),
     ignoredPaths: async ({ rootPath, relativePaths }) => ({
       ignored: [...await ignoredChildNames(rootPath, relativePaths)],
     }),
@@ -28,14 +28,14 @@ export default experimental_defineHostEntry({
       for (const path of relativePaths) assertSafeRelative(path);
       return hostGitAction(rootPath, action, relativePaths);
     },
-    gitDiff: async ({ rootPath, relativePath, against }) => {
+    gitDiff: async ({ rootPath, relativePath, against, pullRequest }) => {
       // `--no-index` would diff any file on the machine, so the path must stay
       // inside the root.
       assertSafeRelative(relativePath);
       if (relativePath.startsWith("/") || relativePath.startsWith("\\") || /^[A-Za-z]:/u.test(relativePath)) {
         throw new Error("path escapes the workspace");
       }
-      return { patch: await hostGitDiff(rootPath, relativePath, against ?? "head") };
+      return { patch: await hostGitDiff(rootPath, relativePath, against ?? "head", pullRequest ?? null) };
     },
   },
 });

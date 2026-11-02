@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
-import { useRpc } from "@get-bb/plugin-sdk/app";
+import { useBbContext, useRpc } from "@get-bb/plugin-sdk/app";
 import { indexStatuses, type GitFileStatus } from "@/lib/git-status";
 import type { rpcContract } from "../contract";
 import type { GitStatusResult } from "../shared";
@@ -20,9 +20,12 @@ interface Store {
   timer: ReturnType<typeof setInterval> | null;
   inFlight: boolean;
   rpc: Rpc;
+  rootId: string;
+  /** The open thread, whose pull request is compared when the checkout is on the default branch. */
+  threadId: string | null;
 }
 
-/** One poll per root, shared by the tree and the Changes tab. */
+/** One poll per root and open thread, shared by the tree and the Changes tab. */
 const stores = new Map<string, Store>();
 
 function sameEntries(left: GitStatusResult["entries"], right: GitStatusResult["entries"]): boolean {
@@ -43,12 +46,16 @@ function sameResult(left: GitStatusResult, right: GitStatusResult): boolean {
   return a.base === b.base && a.commits === b.commits && sameEntries(a.entries, b.entries);
 }
 
-async function refresh(rootId: string): Promise<void> {
-  const store = stores.get(rootId);
+function storeKey(rootId: string, threadId: string | null): string {
+  return `${rootId}::${threadId ?? ""}`;
+}
+
+async function refresh(key: string): Promise<void> {
+  const store = stores.get(key);
   if (store === undefined || store.inFlight || document.visibilityState === "hidden") return;
   store.inFlight = true;
   try {
-    const next = await store.rpc.call("gitStatus", { rootId });
+    const next = await store.rpc.call("gitStatus", { rootId: store.rootId, threadId: store.threadId });
     if (sameResult(store.value, next)) return;
     store.value = next;
     for (const listener of store.listeners) listener();
@@ -59,20 +66,21 @@ async function refresh(rootId: string): Promise<void> {
   }
 }
 
-function subscribe(rootId: string, rpc: Rpc, listener: () => void): () => void {
-  let store = stores.get(rootId);
+function subscribe(rootId: string, threadId: string | null, rpc: Rpc, listener: () => void): () => void {
+  const key = storeKey(rootId, threadId);
+  let store = stores.get(key);
   if (store === undefined) {
-    store = { value: EMPTY, listeners: new Set(), timer: null, inFlight: false, rpc };
-    stores.set(rootId, store);
+    store = { value: EMPTY, listeners: new Set(), timer: null, inFlight: false, rpc, rootId, threadId };
+    stores.set(key, store);
   }
   store.rpc = rpc;
   store.listeners.add(listener);
   if (store.timer === null) {
-    store.timer = setInterval(() => void refresh(rootId), POLL_MS);
-    void refresh(rootId);
+    store.timer = setInterval(() => void refresh(key), POLL_MS);
+    void refresh(key);
   }
   return () => {
-    const current = stores.get(rootId);
+    const current = stores.get(key);
     if (current === undefined) return;
     current.listeners.delete(listener);
     if (current.listeners.size > 0) return;
@@ -85,13 +93,13 @@ function subscribe(rootId: string, rpc: Rpc, listener: () => void): () => void {
 
 /** Re-read now, after the plugin itself changed files. */
 export function refreshGitStatus(rootId: string): void {
-  void refresh(rootId);
+  for (const [key, store] of stores) if (store.rootId === rootId) void refresh(key);
 }
 
 if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
-    for (const [rootId, store] of stores) if (store.timer !== null) void refresh(rootId);
+    for (const [key, store] of stores) if (store.timer !== null) void refresh(key);
   });
 }
 
@@ -103,13 +111,14 @@ export interface GitStatusModel {
 
 export function useGitStatus(rootId: string | null): GitStatusModel {
   const rpc = useRpc<typeof rpcContract>();
+  const threadId = useBbContext().threadId ?? null;
   const subscribeToRoot = useCallback(
-    (listener: () => void) => (rootId === null ? () => undefined : subscribe(rootId, rpc, listener)),
-    [rootId, rpc],
+    (listener: () => void) => (rootId === null ? () => undefined : subscribe(rootId, threadId, rpc, listener)),
+    [rootId, threadId, rpc],
   );
   const result = useSyncExternalStore(
     subscribeToRoot,
-    () => (rootId === null ? EMPTY : stores.get(rootId)?.value ?? EMPTY),
+    () => (rootId === null ? EMPTY : stores.get(storeKey(rootId, threadId))?.value ?? EMPTY),
   );
   useEffect(() => {
     if (rootId !== null) refreshGitStatus(rootId);

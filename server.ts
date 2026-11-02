@@ -1,4 +1,5 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { z } from "zod";
 import { rpcContract } from "./contract";
 import { hostContract } from "./host-contract";
 import type { PathProbe } from "./src/reveal";
@@ -27,6 +28,37 @@ import {
 } from "./src/search-in-files";
 
 export { rpcContract } from "./contract";
+
+const THREAD_PR_TTL_MS = 30_000;
+const threadPullRequests = new Map<string, { at: number; value: { repo: string; number: number } | null }>();
+
+/**
+ * The pull request jb-flow links to a thread (open or draft first, else the
+ * latest), so a thread working from the default-branch checkout still shows
+ * its PR's files. Null without jb-flow. Cached briefly: status polls often.
+ */
+async function threadPullRequest(bb: BbPluginApi, threadId: string): Promise<{ repo: string; number: number } | null> {
+  const cached = threadPullRequests.get(threadId);
+  if (cached !== undefined && Date.now() - cached.at < THREAD_PR_TTL_MS) return cached.value;
+  let value: { repo: string; number: number } | null = null;
+  try {
+    const state = await bb.sdk.plugins.callRpc({
+      pluginId: "jb-flow",
+      method: "state_get",
+      input: null,
+      outputSchema: z.object({
+        threadPrs: z.record(z.string(), z.array(z.object({ repo: z.string(), number: z.number(), state: z.string() }).passthrough())),
+      }).passthrough(),
+    });
+    const prs = state.threadPrs[threadId] ?? [];
+    const pick = prs.find((pr) => pr.state === "open" || pr.state === "draft") ?? prs[prs.length - 1];
+    value = pick ? { repo: pick.repo, number: pick.number } : null;
+  } catch {
+    value = null;
+  }
+  threadPullRequests.set(threadId, { at: Date.now(), value });
+  return value;
+}
 
 export default async function plugin(bb: BbPluginApi): Promise<void> {
   bb.log.info("loaded");
@@ -248,22 +280,23 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
       const skip = new Set(ignored);
       return { hits: hits.filter((hit) => !skip.has(hit.relativePath)).slice(0, limit) };
     },
-    gitStatus: async ({ rootId }) => {
+    gitStatus: async ({ rootId, threadId }) => {
       const root = resolveRoot(rootId);
       if (root === undefined) return { isRepository: false, entries: [], truncated: false };
-      return host.call("gitStatus", { rootPath: root.rootPath }, { hostId: root.hostId });
+      const pullRequest = threadId ? await threadPullRequest(bb, threadId) : null;
+      return host.call("gitStatus", { rootPath: root.rootPath, ...(pullRequest ? { pullRequest } : {}) }, { hostId: root.hostId });
     },
     gitAction: async ({ rootId, action, relativePaths }) => {
       const root = resolveRoot(rootId);
       if (root === undefined) return { ok: false, message: "This explorer is out of date. Reopen it and try again." };
       return host.call("gitAction", { rootPath: root.rootPath, action, relativePaths }, { hostId: root.hostId });
     },
-    gitDiff: async ({ rootId, relativePath, against }) => {
+    gitDiff: async ({ rootId, relativePath, against, pullRequest }) => {
       const root = resolveRoot(rootId);
       if (root === undefined) {
         return { ok: false as const, message: "This diff is out of date. Open it again from the Changes tab." };
       }
-      const { patch } = await host.call("gitDiff", { rootPath: root.rootPath, relativePath, ...(against ? { against } : {}) }, { hostId: root.hostId });
+      const { patch } = await host.call("gitDiff", { rootPath: root.rootPath, relativePath, ...(against ? { against } : {}), ...(pullRequest ? { pullRequest } : {}) }, { hostId: root.hostId });
       return { ok: true as const, patch };
     },
     searchInFiles: async (input) => {
