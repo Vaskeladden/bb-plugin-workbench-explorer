@@ -29,23 +29,27 @@ export const gitStatusEntrySchema = z.object({
   unstaged: z.boolean().optional(),
 });
 
+/**
+ * Files the branch's commits changed since it left its base, as bb's Git
+ * plugin compares the environment. Null on the base branch itself, or without
+ * a merge base.
+ */
+export const gitBranchChangesSchema = z.object({
+  /** The branch compared with, e.g. "main". */
+  base: z.string(),
+  commits: z.number().int().nonnegative(),
+  entries: z.array(gitStatusEntrySchema),
+  /** Set when the files are the thread's pull request, fetched from GitHub, because the checkout itself sits on the base branch. */
+  pullRequest: z.number().int().positive().nullable().optional(),
+});
+
 export const gitStatusResultSchema = z.object({
   /** False outside a work tree, or on a machine without git. */
   isRepository: z.boolean(),
   entries: z.array(gitStatusEntrySchema),
   /** The repository had more changes than the explorer colours. */
   truncated: z.boolean(),
-  /**
-   * Files the branch's commits changed since it left the default branch
-   * (merge-base..HEAD). Null on the default branch itself or without a remote.
-   */
-  branch: z.object({
-    base: z.string(),
-    commits: z.number().int().nonnegative(),
-    entries: z.array(gitStatusEntrySchema),
-    /** Set when the files are the thread's pull request, fetched from GitHub, because the checkout itself sits on the default branch. */
-    pullRequest: z.number().int().positive().nullable().optional(),
-  }).nullable().optional(),
+  branch: gitBranchChangesSchema.nullable().optional(),
 });
 export type GitStatusResult = z.infer<typeof gitStatusResultSchema>;
 

@@ -17,7 +17,7 @@ Files open in BB's own editor.
 
 ## How it works
 
-The tree, git status and search run on the machine that holds the workspace, through BB's host API. Git status is `git status --porcelain`, diffs are `git diff HEAD`, and content search is ripgrep. Deleting moves items to the macOS or freedesktop Trash; a machine without one deletes for good and says so.
+The tree, git status and search run on the machine that holds the workspace, through BB's host API. Git status is `git status --porcelain`, diffs are `git diff HEAD`, and content search is ripgrep. What the branch's commits changed comes from BB's own Git plugin (`bb--git`), so the Changes tab compares against the same merge base as BB's «Workspace changes» panel; git answers that only for a thread's pull request when its checkout sits on the base branch, and for a folder that is no BB environment. Deleting moves items to the macOS or freedesktop Trash; a machine without one deletes for good and says so.
 
 ## First step
 

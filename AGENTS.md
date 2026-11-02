@@ -49,6 +49,7 @@ bun test              # Run the unit tests
 - **`delete-entry.ts`** — Delete a file or folder. The tree root is refused. Folders are removed recursively.
 - **`os-actions.ts`** — OS-level actions: `revealInExplorer` (cross-platform: `open -R` on macOS, `explorer /select` on Windows, `xdg-open` on Linux; WSL-aware) and `copyTextToClipboard` (multiple clipboard backends with fallback).
 - **`ignore.ts`** — Skip patterns. Exports `shouldSkip` (checks `SKIP_FILE_NAMES` / ignored dirs against a `TreeEntry`) and `sortEntries` (directories first, then alphabetical).
+- **`bb-git.ts`** — Branch changes from bb's Git plugin (`bb--git`): finds the ready environment holding a root (`environmentForRoot`), reads its merge base and ahead count (`status`), the changed files (`files`, `branch_committed`) and one file's patch (`patches`). `host-git-status.ts` keeps git only for a pull request's head on a base-branch checkout and for roots that are no bb environment.
 - **`git-ignore.ts`** — Git ignore annotation. Uses `git check-ignore -z --stdin` to determine which files are ignored. Returns null set when git is unavailable.
 - **`entry-name.ts`** — Validates user-typed filenames (bare name, no path separators, not `.`/`..`, not empty).
 - **`paths.ts`** — Path safety utilities. `resolveUnderRoot` (lexical confinement, allows symlinked targets), `toRelativePath`, `assertSafeRelative`.
@@ -326,6 +327,8 @@ e
 | `src/rename-entry.test.ts` | Rename with collision and root-protection checks |
 | `src/delete-entry.test.ts` | Delete with recursive folder removal |
 | `src/git-ignore.test.ts` | Git ignore pattern annotation |
+| `src/bb-git.test.ts` | bb--git file paths re-based onto a root inside the repository |
+| `src/host-git-status.test.ts` | Status, uncommitted diffs, and git branch changes against a named base |
 |`src/search-in-files.test.ts`|Content search and replace with hash-conditional writes|
 |`src/host-search.test.ts`|Host search via ripgrep: line/column mapping, options, ignored folders, binaries, limit, fallback|
 | `src/text-match.test.ts` | Regex/text matching (literal, case, whole-word, regex) |

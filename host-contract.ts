@@ -1,6 +1,6 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { fileSearchMatchSchema, gitStatusResultSchema, treeEntrySchema } from "./shared";
+import { fileSearchMatchSchema, gitBranchChangesSchema, gitStatusResultSchema, treeEntrySchema } from "./shared";
 
 export const hostContract = defineRpcContract({
   statPath: {
@@ -42,15 +42,36 @@ export const hostContract = defineRpcContract({
   },
   /** Working-tree status, run with the machine's own git where the root lives. */
   gitStatus: {
+    input: z.object({ rootPath: z.string().min(1) }).strict(),
+    output: gitStatusResultSchema.omit({ branch: true }),
+  },
+  /** Where the root sits in its repository ("" at the top, "pkg/" below it); null outside one. */
+  gitPrefix: {
+    input: z.object({ rootPath: z.string().min(1) }).strict(),
+    output: z.object({ prefix: z.string().nullable() }).strict(),
+  },
+  /**
+   * Branch changes with git, for what bb--git cannot answer: a pull request's
+   * head (`base` is then the environment's base as bb--git reports it), or a
+   * folder that is no bb environment (no `base`: origin's default branch).
+   */
+  gitBranchChanges: {
     input: z.object({
       rootPath: z.string().min(1),
-      /** The thread's pull request, compared with the default branch when the checkout is on it. */
+      base: z.string().min(1).optional(),
+      /** The thread's pull request, compared with the base when the checkout is on the base branch. */
       pullRequest: z.object({ repo: z.string().min(3), number: z.number().int().positive() }).strict().optional(),
     }).strict(),
-    output: gitStatusResultSchema,
+    output: z.object({ branch: gitBranchChangesSchema.nullable() }).strict(),
   },
   gitDiff: {
-    input: z.object({ rootPath: z.string().min(1), relativePath: z.string().min(1), against: z.enum(["head", "base"]).optional(), pullRequest: z.number().int().positive().optional() }).strict(),
+    input: z.object({
+      rootPath: z.string().min(1),
+      relativePath: z.string().min(1),
+      against: z.enum(["head", "base"]).optional(),
+      base: z.string().min(1).optional(),
+      pullRequest: z.number().int().positive().optional(),
+    }).strict(),
     output: z.object({ patch: z.string().nullable() }).strict(),
   },
   /** Stage, unstage or discard files `git status` lists under the root. */
