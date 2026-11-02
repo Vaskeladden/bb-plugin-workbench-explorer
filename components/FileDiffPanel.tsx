@@ -18,18 +18,21 @@ export interface FileDiffParams {
    */
   hostId?: string;
   rootPath?: string;
+  /** "base": what the branch's commits changed since the default branch. */
+  against?: "base";
 }
 
 /** Tab params round-trip through persistence, so they are checked, not trusted. */
 export function parseFileDiffParams(params: JsonValue | null): FileDiffParams | null {
   if (params === null || typeof params !== "object" || Array.isArray(params)) return null;
-  const { rootId, relativePath, hostId, rootPath } = params as Record<string, JsonValue>;
+  const { rootId, relativePath, hostId, rootPath, against } = params as Record<string, JsonValue>;
   if (typeof rootId !== "string" || rootId === "") return null;
   if (typeof relativePath !== "string" || relativePath === "") return null;
   return {
     rootId,
     relativePath,
     ...(typeof hostId === "string" && typeof rootPath === "string" ? { hostId, rootPath } : {}),
+    ...(against === "base" ? { against: "base" as const } : {}),
   };
 }
 
@@ -47,6 +50,7 @@ export function FileDiffPanel({ threadId, params }: { threadId: string; params: 
   const relativePath = target?.relativePath ?? null;
   const hostId = target?.hostId ?? null;
   const rootPath = target?.rootPath ?? null;
+  const against = target?.against ?? null;
   const [rootId, setRootId] = useState<string | null>(target?.rootId ?? null);
   useEffect(() => setRootId(target?.rootId ?? null), [target?.rootId]);
 
@@ -68,7 +72,7 @@ export function FileDiffPanel({ threadId, params }: { threadId: string; params: 
     };
     const load = () => {
       if (document.visibilityState === "hidden") return;
-      rpc.call("gitDiff", { rootId, relativePath })
+      rpc.call("gitDiff", { rootId, relativePath, ...(against === null ? {} : { against }) })
         .then(async (result) => {
           if (!result.ok && await reresolve()) return;
           if (cancelled) return;
@@ -92,7 +96,7 @@ export function FileDiffPanel({ threadId, params }: { threadId: string; params: 
       cancelled = true;
       clearInterval(timer);
     };
-  }, [rpc, rootId, relativePath, hostId, rootPath, threadId]);
+  }, [rpc, rootId, relativePath, hostId, rootPath, threadId, against]);
 
   if (target === null) {
     return <p className="p-4 text-sm text-muted-foreground">Open a file from the File Explorer's Changes tab to see its diff.</p>;
@@ -126,7 +130,9 @@ export function FileDiffPanel({ threadId, params }: { threadId: string; params: 
         ) : state.kind === "error" ? (
           <p className="p-4 text-sm text-destructive">{state.message}</p>
         ) : state.patch === null ? (
-          <p className="p-4 text-sm text-muted-foreground">No uncommitted changes in this file.</p>
+          <p className="p-4 text-sm text-muted-foreground">
+            {against === "base" ? "The branch's commits do not change this file." : "No uncommitted changes in this file."}
+          </p>
         ) : (
           <Diff patch={state.patch} path={target.relativePath} view={view} />
         )}

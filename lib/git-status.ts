@@ -13,6 +13,8 @@ export type GitFileStatus =
 export interface GitStatusEntry {
   path: string;
   status: GitFileStatus;
+  staged?: boolean;
+  unstaged?: boolean;
 }
 
 /** Most important first: a folder shows the highest-ranked state inside it. */
@@ -69,9 +71,31 @@ export function parsePorcelainZ(output: string, prefix: string): GitStatusEntry[
     if (prefix !== "" && !repoPath.startsWith(prefix)) continue;
     const path = repoPath.slice(prefix.length).replace(/\/+$/, "");
     if (path === "") continue;
-    entries.push({ path, status });
+    entries.push({ path, status, staged: code[0] !== " " && code[0] !== "?", unstaged: code[1] !== " " });
   }
 
+  return entries;
+}
+
+/**
+ * Parse `git diff --name-status -z --relative`: a status letter (with a score
+ * for renames and copies), then the path, or the old and new path.
+ */
+export function parseNameStatusZ(output: string): GitStatusEntry[] {
+  const fields = output.split("\0");
+  const entries: GitStatusEntry[] = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    const letter = fields[index]![0];
+    if (letter === undefined) continue;
+    const path = letter === "R" || letter === "C" ? fields[(index += 2)] : fields[(index += 1)];
+    if (path === undefined || path === "") continue;
+    const status: GitFileStatus = letter === "A" ? "added"
+      : letter === "D" ? "deleted"
+      : letter === "R" || letter === "C" ? "renamed"
+      : letter === "U" ? "conflicted"
+      : "modified";
+    entries.push({ path, status });
+  }
   return entries;
 }
 

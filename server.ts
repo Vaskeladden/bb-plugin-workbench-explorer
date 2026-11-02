@@ -253,12 +253,17 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
       if (root === undefined) return { isRepository: false, entries: [], truncated: false };
       return host.call("gitStatus", { rootPath: root.rootPath }, { hostId: root.hostId });
     },
-    gitDiff: async ({ rootId, relativePath }) => {
+    gitAction: async ({ rootId, action, relativePaths }) => {
+      const root = resolveRoot(rootId);
+      if (root === undefined) return { ok: false, message: "This explorer is out of date. Reopen it and try again." };
+      return host.call("gitAction", { rootPath: root.rootPath, action, relativePaths }, { hostId: root.hostId });
+    },
+    gitDiff: async ({ rootId, relativePath, against }) => {
       const root = resolveRoot(rootId);
       if (root === undefined) {
         return { ok: false as const, message: "This diff is out of date. Open it again from the Changes tab." };
       }
-      const { patch } = await host.call("gitDiff", { rootPath: root.rootPath, relativePath }, { hostId: root.hostId });
+      const { patch } = await host.call("gitDiff", { rootPath: root.rootPath, relativePath, ...(against ? { against } : {}) }, { hostId: root.hostId });
       return { ok: true as const, patch };
     },
     searchInFiles: async (input) => {
