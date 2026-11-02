@@ -127,15 +127,15 @@ export function GlobalFileExplorerRail() {
       .then(({ choices: next }) => {
         if (cancelled) return;
         setChoices(next);
-        // Opening a thread shows that thread's own project: the selector
-        // follows the route. The pinned choice is what New Thread keeps —
-        // there is no thread there to follow.
+        // Opening a thread shows that thread's own checkout: its worktree
+        // when it has one, else its project's source. The selector follows
+        // the route. The pinned choice is what New Thread keeps — there is no
+        // thread there to follow.
         if (threadId !== null && lastFollowedThread.current !== threadId) {
           lastFollowedThread.current = threadId;
-          const follow = next.find((choice) =>
-              choice.id.startsWith("source:") && choice.projectId === projectId)
+          const follow = next.find((choice) => choice.id === `thread:${threadId}`)
+            ?? next.find((choice) => choice.id.startsWith("source:") && choice.projectId === projectId)
             ?? next.find((choice) => choice.id === `personal:${projectId}`)
-            ?? next.find((choice) => choice.id === `thread:${threadId}`)
             ?? next.find((choice) => choice.projectId !== null && choice.projectId === projectId);
           if (follow !== undefined) {
             if (follow.id !== selectedId) {
@@ -146,8 +146,8 @@ export function GlobalFileExplorerRail() {
           }
         }
         if (selectedId === null) {
-          const preferred = next.find((choice) => choice.id === `personal:${projectId}`)
-            ?? next.find((choice) => choice.id === `thread:${threadId}`)
+          const preferred = next.find((choice) => choice.id === `thread:${threadId}`)
+            ?? next.find((choice) => choice.id === `personal:${projectId}`)
             ?? next.find((choice) => choice.projectId !== null && choice.projectId === projectId)
             ?? next[0];
           if (preferred !== undefined) {
