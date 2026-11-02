@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { mountChatPathButtons } from "@/lib/chat-path-buttons";
 import { registerSurfaceNavigation } from "@/lib/surface-navigation";
@@ -20,8 +20,19 @@ import type { rpcContract } from "../contract";
 export function ChatPathBridge({ threadId }: { threadId: string }) {
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
+  // bb hands out new `rpc`/`navigate` objects as the header re-renders (every
+  // second while a timer ticks). Read the latest through refs so only a
+  // thread change remounts the scanner; each remount removed every reveal
+  // button in the chat and added them back a moment later, which re-wrapped
+  // the surrounding text.
+  const rpcRef = useRef(rpc);
+  rpcRef.current = rpc;
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
 
   useEffect(() => {
+    const rpc = rpcRef.current;
+    const navigate = navigateRef.current;
     const controller = new AbortController();
     const unregisterNavigation = registerSurfaceNavigation(threadId, navigate);
     mountChatPathButtons(
@@ -54,7 +65,7 @@ export function ChatPathBridge({ threadId }: { threadId: string }) {
       controller.abort();
       unregisterNavigation();
     };
-  }, [navigate, rpc, threadId]);
+  }, [threadId]);
 
   return null;
 }
