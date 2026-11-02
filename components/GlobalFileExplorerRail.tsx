@@ -24,8 +24,11 @@ import { TitleBarFileExplorerToggle } from "@/components/TitleBarFileExplorerTog
 import type { RootChoice } from "../shared";
 import type { rpcContract } from "../contract";
 
-/** Window event other plugins dispatch to open the rail on its Changes tab. */
-const SHOW_CHANGES_EVENT = "bb-plugin-workbench-explorer:show-changes";
+/**
+ * Window event other plugins dispatch to toggle the rail's Changes tab: open
+ * the rail on it, or close the rail when it already shows Changes.
+ */
+const TOGGLE_CHANGES_EVENT = "bb-plugin-workbench-explorer:toggle-changes";
 /** Window event (and global with the latest value) carrying the Changes tab's counts. */
 const CHANGES_SUMMARY_EVENT = "bb-plugin-workbench-explorer:changes-summary";
 const CHANGES_SUMMARY_GLOBAL = "__bbWorkbenchExplorerChanges";
@@ -38,6 +41,8 @@ interface ExplorerChangesSummary {
   total: number;
   base: string | null;
   pullRequest: number | null;
+  /** The rail is open on the Changes tab. */
+  showing: boolean;
 }
 
 const ROOT_STORAGE_KEY = "bb-plugin-workbench-explorer:pinned-root";
@@ -105,16 +110,21 @@ export function GlobalFileExplorerRail() {
   // A right-clicked "Find in Folder" opens the tab that answers it. The panel
   // reads the same request and scopes its query to that folder.
   const findInFolder = useSyncExternalStore(subscribeFindInFolder, getFindInFolder);
-  // Another plugin (conductor-actions' header "Changes" button) asks for the
-  // Changes tab: open the rail on it.
+  // Another plugin (conductor-actions' header "Changes" button) toggles the
+  // Changes tab: a second click closes the rail again.
+  const showingChanges = useRef(false);
   useEffect(() => {
-    const showChanges = () => {
+    const toggleChanges = () => {
+      if (showingChanges.current) {
+        writeStoredOpen(false);
+        return;
+      }
       writeStoredOpen(true);
       setTab("changes");
       writeStoredTab("changes");
     };
-    window.addEventListener(SHOW_CHANGES_EVENT, showChanges);
-    return () => window.removeEventListener(SHOW_CHANGES_EVENT, showChanges);
+    window.addEventListener(TOGGLE_CHANGES_EVENT, toggleChanges);
+    return () => window.removeEventListener(TOGGLE_CHANGES_EVENT, toggleChanges);
   }, []);
   useEffect(() => subscribeTextSearch(() => {
     writeStoredOpen(true);
@@ -206,10 +216,12 @@ export function GlobalFileExplorerRail() {
       total: new Set([...gitStatus.entries.map((entry) => entry.path), ...branchPaths]).size,
       base: gitStatus.branch?.base ?? null,
       pullRequest: gitStatus.branch?.pullRequest ?? null,
+      showing: ready && open && tab === "changes",
     };
+    showingChanges.current = detail.showing;
     (window as unknown as Record<string, unknown>)[CHANGES_SUMMARY_GLOBAL] = detail;
     window.dispatchEvent(new CustomEvent(CHANGES_SUMMARY_EVENT, { detail }));
-  }, [gitStatus, threadId]);
+  }, [gitStatus, threadId, ready, open, tab]);
   const railOpen = ready && open;
   useLayoutEffect(() => {
     if (!railOpen || compact) {
