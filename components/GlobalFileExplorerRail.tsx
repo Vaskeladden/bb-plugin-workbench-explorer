@@ -9,6 +9,7 @@ import { FileContentSearchPanel } from "@/components/FileContentSearchPanel";
 import { ChangesPanel } from "@/components/ChangesPanel";
 import { ConfirmHost } from "@/components/ConfirmHost";
 import { QuickOpen } from "@/components/QuickOpen";
+import { publishedLines, type PublishedCategoryLines } from "@/lib/change-category";
 import { subscribeTextSearch } from "@/lib/text-search-bus";
 import { useGitStatus } from "@/hooks/useGitStatus";
 import { RailResizeHandle } from "@/components/RailResizeHandle";
@@ -33,6 +34,15 @@ const TOGGLE_CHANGES_EVENT = "bb-plugin-workbench-explorer:toggle-changes";
 const CHANGES_SUMMARY_EVENT = "bb-plugin-workbench-explorer:changes-summary";
 const CHANGES_SUMMARY_GLOBAL = "__bbWorkbenchExplorerChanges";
 
+/**
+ * Published on `window[CHANGES_SUMMARY_GLOBAL]` and as the detail of
+ * `CHANGES_SUMMARY_EVENT` for other plugins. `lines` holds added and deleted
+ * lines per kind of file ("code" | "conf" | "test" | "docs", from
+ * `changeCategory`) for each list on its own: `uncommitted` against HEAD,
+ * `branch` the branch's commits since its merge base. A list is null when it
+ * has a text file without line counts, and `branch` is null without a branch
+ * comparison. Binary files count in `files` with no lines.
+ */
 interface ExplorerChangesSummary {
   threadId: string | null;
   uncommitted: number;
@@ -43,6 +53,10 @@ interface ExplorerChangesSummary {
   pullRequest: number | null;
   /** The rail is open on the Changes tab. */
   showing: boolean;
+  lines: {
+    uncommitted: PublishedCategoryLines | null;
+    branch: PublishedCategoryLines | null;
+  };
 }
 
 const ROOT_STORAGE_KEY = "bb-plugin-workbench-explorer:pinned-root";
@@ -217,6 +231,10 @@ export function GlobalFileExplorerRail() {
       base: gitStatus.branch?.base ?? null,
       pullRequest: gitStatus.branch?.pullRequest ?? null,
       showing: ready && open && tab === "changes",
+      lines: {
+        uncommitted: publishedLines(gitStatus.entries),
+        branch: gitStatus.branch ? publishedLines(gitStatus.branch.entries) : null,
+      },
     };
     showingChanges.current = detail.showing;
     (window as unknown as Record<string, unknown>)[CHANGES_SUMMARY_GLOBAL] = detail;

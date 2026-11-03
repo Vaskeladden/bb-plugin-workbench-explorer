@@ -46,7 +46,7 @@ BB keeps ⌘P (its own *Quick open file*) and ⇧⌘E; every key above can be re
 ## Git and icons
 
 - Files and folders take VS Code's Git colours: amber **M** for modified, green **U**/**A** for new, red **D** for deleted, purple **!** for conflicts. A folder holding changes takes the most pressing colour beneath it and ends with a dot. The status is re-read every 3 seconds while the window is visible.
-- The **Changes** tab lists every uncommitted file under the pinned folder. Click one for its diff against HEAD in a BB panel tab (Inline or Side by side); **Open** opens the file itself.
+- The **Changes** tab lists every uncommitted file under the pinned folder, each with its `+added −deleted` lines, under a summary of changed lines per kind of file (Kode, Conf, Test, Docs) for the branch and for uncommitted work. Click one for its diff against HEAD in a BB panel tab (Inline or Side by side); **Open** opens the file itself.
 - File and folder icons are the [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) (MIT, see `vendor/material-icon-theme/LICENSE`), resolved the way VS Code does. Regenerate them with `python3 -I scripts/gen-material-icons.py <unpacked material-icon-theme package>`.
 - In BB's desktop window the rail sits below the title bar, and its show/hide button joins the title-bar buttons. **Explorer: show or hide** in the command palette toggles it (default ⌘B).
 

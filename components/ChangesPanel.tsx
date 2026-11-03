@@ -12,6 +12,13 @@ import {
 } from "@/components/ui/context-menu";
 import { refreshGitStatus, useGitStatus } from "@/hooks/useGitStatus";
 import { requestConfirm } from "@/lib/confirm-bus";
+import {
+  CATEGORY_LABEL,
+  CHANGE_CATEGORIES,
+  lineTotals,
+  type CategoryTotals,
+  type ChangeCategory,
+} from "@/lib/change-category";
 import { STATUS_BADGE, STATUS_LABEL, STATUS_TEXT, type GitStatusEntry } from "@/lib/git-status";
 import { openWorkspaceFile } from "@/lib/open-preview";
 import { surfaceNavigation } from "@/lib/surface-navigation";
@@ -142,6 +149,13 @@ export function ChangesPanel({ root }: { root: Workspace | null }) {
             {branch === null ? "No uncommitted changes." : `No uncommitted changes, and no commits ahead of ${branch.base}.`}
           </p>
         ) : null}
+        {nothing ? null : (
+          <ChangeSummary
+            uncommitted={result.entries}
+            branch={branch === null ? [] : branchEntries}
+            branchLabel={branch === null ? "" : branch.pullRequest ? `#${branch.pullRequest} vs ${branch.base}` : `vs ${branch.base}`}
+          />
+        )}
         {staged.length > 0 ? (
           <Group
             id="staged"
@@ -286,13 +300,14 @@ function Row({ entry, onClick, onOpen, menu, buttons }: {
           <button
             type="button"
             onClick={onClick}
-            title={`${entry.path} · ${STATUS_LABEL[entry.status]} — click for the diff`}
+            title={`${entry.path} · ${STATUS_LABEL[entry.status]}${countsTitle(entry)} — click for the diff`}
             className="flex min-w-0 flex-1 items-center gap-1 py-px pl-4 pr-1 text-left text-[11px] leading-5"
           >
             <FileTypeIcon name={name} className="size-4" />
             <span className={cn("min-w-0 shrink truncate", STATUS_TEXT[entry.status], isDeleted && "line-through")}>{name}</span>
             {folder === "" ? null : <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground/70">{folder}</span>}
           </button>
+          <LineCounts entry={entry} />
           <span className="hidden shrink-0 items-center group-hover:flex">
             {isDeleted ? null : <RowButton title="Open file" onClick={onOpen}>⧉</RowButton>}
             {buttons}
@@ -320,6 +335,100 @@ function Row({ entry, onClick, onOpen, menu, buttons }: {
           ))}
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+function countsTitle(entry: GitStatusEntry): string {
+  if (entry.binary === true) return " · binary";
+  if (entry.additions === undefined || entry.deletions === undefined) return "";
+  return ` · +${entry.additions} −${entry.deletions} lines`;
+}
+
+/** A row's `+33 −1`, as VS Code and GitHub show it; "bin" for a binary file, nothing when unknown. */
+function LineCounts({ entry }: { entry: GitStatusEntry }) {
+  if (entry.binary === true) {
+    return <span className="shrink-0 pl-1 font-mono text-[10px] leading-5 text-muted-foreground/70">bin</span>;
+  }
+  if (entry.additions === undefined || entry.deletions === undefined) return null;
+  return <Counts additions={entry.additions} deletions={entry.deletions} className="shrink-0 pl-1" />;
+}
+
+function Counts({ additions, deletions, className }: { additions: number; deletions: number; className?: string }) {
+  return (
+    <span className={cn("whitespace-nowrap font-mono text-[10px] tabular-nums leading-5", className)}>
+      <span className={additions === 0 ? "text-muted-foreground/50" : "text-green-600 dark:text-green-400"}>+{additions}</span>
+      {" "}
+      <span className={deletions === 0 ? "text-muted-foreground/50" : "text-red-600 dark:text-red-400"}>−{deletions}</span>
+    </span>
+  );
+}
+
+function cellTitle(label: string, totals: CategoryTotals): string {
+  const parts = [`${label}: ${totals.files} file${totals.files === 1 ? "" : "s"}`];
+  if (totals.binary > 0) parts.push(`${totals.binary} binary`);
+  if (totals.uncounted > 0) parts.push(`${totals.uncounted} without line counts`);
+  return parts.join(" · ");
+}
+
+/**
+ * Lines added and deleted per kind of file — Kode, Conf, Test, and Docs when
+ * docs changed — for each list the panel shows. The branch's commits (vs its
+ * base) and the uncommitted work (vs HEAD) are separate diffs, so each keeps
+ * its own column rather than a sum that would net neither.
+ */
+function ChangeSummary({ uncommitted, branch, branchLabel }: {
+  uncommitted: readonly GitStatusEntry[];
+  branch: readonly GitStatusEntry[];
+  branchLabel: string;
+}) {
+  const columns = useMemo(() => {
+    const list: { key: string; label: string; totals: Record<ChangeCategory, CategoryTotals> }[] = [];
+    if (branch.length > 0) list.push({ key: "branch", label: branchLabel, totals: lineTotals(branch) });
+    if (uncommitted.length > 0) list.push({ key: "uncommitted", label: "Uncommitted", totals: lineTotals(uncommitted) });
+    return list;
+  }, [uncommitted, branch, branchLabel]);
+  const rows = CHANGE_CATEGORIES.filter((category) =>
+    category !== "docs" || columns.some((column) => column.totals.docs.files > 0));
+  if (columns.length === 0) return null;
+  return (
+    <div
+      className="mx-1 mb-1 mt-1 grid items-center gap-x-2 rounded-[3px] bg-state-hover px-1.5 py-1 text-[10px] leading-4"
+      style={{ gridTemplateColumns: `auto repeat(${columns.length}, minmax(0, 1fr))` }}
+      aria-label="Changed lines per kind of file"
+    >
+      <span />
+      {columns.map((column) => (
+        <span key={column.key} className="truncate text-right text-[9px] uppercase tracking-wide text-muted-foreground/80" title={column.label}>
+          {column.label}
+        </span>
+      ))}
+      {rows.map((category) => (
+        <SummaryRow key={category} category={category} columns={columns} />
+      ))}
+    </div>
+  );
+}
+
+function SummaryRow({ category, columns }: {
+  category: ChangeCategory;
+  columns: readonly { key: string; label: string; totals: Record<ChangeCategory, CategoryTotals> }[];
+}) {
+  const label = CATEGORY_LABEL[category];
+  return (
+    <>
+      <span className="text-muted-foreground">{label}</span>
+      {columns.map((column) => {
+        const totals = column.totals[category];
+        return (
+          <span key={column.key} className="truncate text-right" title={`${column.label} · ${cellTitle(label, totals)}`}>
+            {totals.files === 0
+              ? <span className="font-mono text-muted-foreground/50">–</span>
+              : <Counts additions={totals.additions} deletions={totals.deletions} />}
+            {totals.uncounted > 0 ? <span className="text-muted-foreground/70">*</span> : null}
+          </span>
+        );
+      })}
+    </>
   );
 }
 

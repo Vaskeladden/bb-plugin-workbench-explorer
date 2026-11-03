@@ -49,7 +49,7 @@ bun test              # Run the unit tests
 - **`delete-entry.ts`** — Delete a file or folder. The tree root is refused. Folders are removed recursively.
 - **`os-actions.ts`** — OS-level actions: `revealInExplorer` (cross-platform: `open -R` on macOS, `explorer /select` on Windows, `xdg-open` on Linux; WSL-aware) and `copyTextToClipboard` (multiple clipboard backends with fallback).
 - **`ignore.ts`** — Skip patterns. Exports `shouldSkip` (checks `SKIP_FILE_NAMES` / ignored dirs against a `TreeEntry`) and `sortEntries` (directories first, then alphabetical).
-- **`bb-git.ts`** — Branch changes from bb's Git plugin (`bb--git`): finds the ready environment holding a root (`environmentForRoot`), reads its merge base and ahead count (`status`), the changed files (`files`, `branch_committed`) and one file's patch (`patches`). `host-git-status.ts` keeps git only for a pull request's head on a base-branch checkout and for roots that are no bb environment.
+- **`bb-git.ts`** — Branch changes from bb's Git plugin (`bb--git`): finds the ready environment holding a root (`environmentForRoot`), reads its merge base and ahead count (`status`), the changed files with their line counts (`files`, `branch_committed`; `uncommitted` for the line counts of uncommitted files, `bbGitUncommittedCounts`) and one file's patch (`patches`). `host-git-status.ts` keeps git only for a pull request's head on a base-branch checkout and for roots that are no bb environment; there it also counts lines (`git diff --numstat`, and an untracked file's own lines when `gitStatus` gets `lineCounts: true`).
 - **`git-ignore.ts`** — Git ignore annotation. Uses `git check-ignore -z --stdin` to determine which files are ignored. Returns null set when git is unavailable.
 - **`entry-name.ts`** — Validates user-typed filenames (bare name, no path separators, not `.`/`..`, not empty).
 - **`paths.ts`** — Path safety utilities. `resolveUnderRoot` (lexical confinement, allows symlinked targets), `toRelativePath`, `assertSafeRelative`.
@@ -81,11 +81,42 @@ bun test              # Run the unit tests
 - **`search-focus-bus.ts`** — One-slot hand-off for command-palette "find a file" focus requests.
 - **`surface-navigation.ts`** — Registers and resolves `useBbNavigate` per thread route. Keyed by threadId (or "new-thread").
 - **`timed-cache.ts`** — Per-scope TTL cache for verdicts (default 10min for path cache). Used by `chat-path-buttons.ts`.
+- **`change-category.ts`** — Sorts a changed path into `code`, `conf`, `test` or `docs` (`changeCategory`; test > conf > docs > code) and totals added/deleted lines per category over one list (`lineTotals`, `publishedLines`). The Changes tab's summary and the published changes summary both use it.
 - **`file-type.ts`** — Seti-style file glyph and color detection. Maps file names and extensions to glyphs (markdown, json, git, config, react, shell, code, etc.).
 - **`open-preview.ts`** — Opens files in BB's preview panel. Prefers workspace target for environment-rooted files; falls back to host-by-absolute-path for re-rooted or remote files.
 - **`utils.ts`** — `cn` (clsx + tailwind-merge) and `formatHomePathForDisplay` (abbreviate home paths for display only).
 - **`portal-scope.ts`** — Returns portal scope attributes for `data-bb-portaled-overlay` / `data-bb-plugin-root` / `data-bb-plugin`.
 - **`visible-reveal.ts`** — Ensures a revealed child row appears in the tree even when the host directory listing omits dotfolders. Only for unverified reveal chains.
+
+### Changes tab line counts
+
+Each row in **Changes** shows `+added −deleted` before its status letter (`bin` for a binary file, nothing when unknown). Uncommitted rows count against HEAD (a partly staged file shows the same total in Staged and Changes); branch rows count since the merge base. A summary at the top gives `+ −` per category (Kode, Conf, Test; Docs only when docs changed) with one column per list — the branch vs its base, and uncommitted vs HEAD — kept apart because they are different diffs.
+
+For a root in a bb environment the counts come from `bb--git`'s `files` listing (one call per list per poll); for any other root git on the host counts them.
+
+### Published changes summary
+
+`GlobalFileExplorerRail` publishes `ExplorerChangesSummary` as `window.__bbWorkbenchExplorerChanges` and as the detail of the window event `bb-plugin-workbench-explorer:changes-summary`:
+
+```ts
+{
+  threadId: string | null;
+  uncommitted: number;          // files
+  branch: number;               // files
+  total: number;                // distinct files across both lists
+  base: string | null;
+  pullRequest: number | null;
+  showing: boolean;             // rail open on the Changes tab
+  lines: {
+    // per category, each list on its own; null when a text file in the list
+    // has no line count (or, for branch, when there is no branch comparison)
+    uncommitted: Record<"code" | "conf" | "test" | "docs", { files: number; additions: number; deletions: number }> | null;
+    branch: Record<"code" | "conf" | "test" | "docs", { files: number; additions: number; deletions: number }> | null;
+  };
+}
+```
+
+Binary files count in `files` with no lines.
 
 ### Hooks (`hooks/`)
 
@@ -327,8 +358,10 @@ e
 | `src/rename-entry.test.ts` | Rename with collision and root-protection checks |
 | `src/delete-entry.test.ts` | Delete with recursive folder removal |
 | `src/git-ignore.test.ts` | Git ignore pattern annotation |
-| `src/bb-git.test.ts` | bb--git file paths re-based onto a root inside the repository |
-| `src/host-git-status.test.ts` | Status, uncommitted diffs, and git branch changes against a named base |
+| `src/bb-git.test.ts` | bb--git file paths re-based onto a root inside the repository, with their line counts |
+| `src/host-git-status.test.ts` | Status, uncommitted diffs, line counts, and git branch changes against a named base |
+| `lib/git-status.test.ts` | `git diff --numstat -z` parsing, attaching counts, counting a new file's lines |
+| `lib/change-category.test.ts` | Code/conf/test/docs classification and per-category line totals |
 |`src/search-in-files.test.ts`|Content search and replace with hash-conditional writes|
 |`src/host-search.test.ts`|Host search via ripgrep: line/column mapping, options, ignored folders, binaries, limit, fallback|
 | `src/text-match.test.ts` | Regex/text matching (literal, case, whole-word, regex) |

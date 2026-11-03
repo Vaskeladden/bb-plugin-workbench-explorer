@@ -25,3 +25,16 @@ test("bb--git's repository paths are re-based onto a root inside the repository"
   ]);
   assert.equal(branchEntries(files, "").length, files.length);
 });
+
+test("bb--git's line counts ride along; a binary file's zeros are no count", () => {
+  const files: BbGitFile[] = [
+    { ...file("pkg/a.ts", "modified"), additions: 33, deletions: 1, binary: false },
+    { ...file("pkg/logo.png", "added"), additions: 0, deletions: 0, binary: true },
+    file("pkg/old-host.ts", "modified"),
+  ];
+  assert.deepEqual(branchEntries(files, "pkg/"), [
+    { path: "a.ts", status: "modified", additions: 33, deletions: 1, binary: false },
+    { path: "logo.png", status: "added", binary: true },
+    { path: "old-host.ts", status: "modified" },
+  ]);
+});

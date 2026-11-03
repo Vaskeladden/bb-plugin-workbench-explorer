@@ -27,6 +27,14 @@ export const gitStatusEntrySchema = z.object({
   staged: z.boolean().optional(),
   /** The working tree differs from the index, or the file is untracked. */
   unstaged: z.boolean().optional(),
+  /**
+   * Lines added and deleted: uncommitted entries against HEAD (an untracked
+   * file counts all its lines), branch entries since the merge base. Absent
+   * when unknown and for binary files.
+   */
+  additions: z.number().int().nonnegative().optional(),
+  deletions: z.number().int().nonnegative().optional(),
+  binary: z.boolean().optional(),
 });
 
 /**

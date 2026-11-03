@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import type { GitStatusEntry } from "../lib/git-status";
+import type { GitStatusEntry, LineCounts } from "../lib/git-status";
 
 /**
  * What a branch changed since it left its base comes from bb's own Git plugin
@@ -29,6 +29,10 @@ const fileSchema = z.object({
   path: z.string(),
   changeKind: z.enum(["added", "modified", "deleted", "renamed", "copied", "type_changed"]),
   revision: z.string(),
+  /** Line counts as bb's panel shows them; zero on both sides for a binary file. */
+  additions: z.number().int().nonnegative().optional(),
+  deletions: z.number().int().nonnegative().optional(),
+  binary: z.boolean().optional(),
 });
 export type BbGitFile = z.infer<typeof fileSchema>;
 
@@ -99,14 +103,20 @@ function branchTarget(base: string) {
   return { type: "branch_committed" as const, mergeBaseBranch: base };
 }
 
-async function branchFiles(bb: BbPluginApi, environmentId: string, base: string) {
+type FilesTarget = ReturnType<typeof branchTarget> | { type: "uncommitted" };
+
+async function listFiles(bb: BbPluginApi, environmentId: string, target: FilesTarget) {
   const result = await bb.sdk.plugins.callRpc({
     pluginId: GIT_PLUGIN,
     method: "files",
-    input: { environmentId, target: branchTarget(base), ignoreWhitespace: false },
+    input: { environmentId, target, ignoreWhitespace: false },
     outputSchema: filesSchema,
   });
   return result.outcome === "available" ? result : null;
+}
+
+function branchFiles(bb: BbPluginApi, environmentId: string, base: string) {
+  return listFiles(bb, environmentId, branchTarget(base));
 }
 
 const STATUS_BY_KIND: Record<BbGitFile["changeKind"], GitStatusEntry["status"]> = {
@@ -128,9 +138,32 @@ export function branchEntries(files: readonly BbGitFile[], prefix: string): GitS
   for (const file of files) {
     if (!file.path.startsWith(prefix)) continue;
     const relative = file.path.slice(prefix.length);
-    if (relative !== "") entries.push({ path: relative, status: STATUS_BY_KIND[file.changeKind] });
+    if (relative !== "") entries.push({ path: relative, status: STATUS_BY_KIND[file.changeKind], ...lineCounts(file) });
   }
   return entries;
+}
+
+/** A binary file's zeros are no count; a file without counts keeps none. */
+function lineCounts(file: BbGitFile): LineCounts {
+  if (file.binary === true) return { binary: true };
+  if (file.additions === undefined || file.deletions === undefined) return {};
+  return { additions: file.additions, deletions: file.deletions, binary: false };
+}
+
+/**
+ * Each uncommitted file's line counts against HEAD, as bb's panel counts them
+ * (an untracked file's lines all count as added), keyed by its path under the
+ * root. Status, staging and conflicts stay git status's business. Null when
+ * bb--git cannot list them.
+ */
+export async function bbGitUncommittedCounts(
+  bb: BbPluginApi,
+  environmentId: string,
+  prefix: string,
+): Promise<Map<string, LineCounts> | null> {
+  const listing = await listFiles(bb, environmentId, { type: "uncommitted" });
+  if (listing === null) return null;
+  return new Map(branchEntries(listing.files, prefix).map(({ path, status: _status, ...counts }) => [path, counts]));
 }
 
 /** Files the branch's commits changed, as `bb--git` lists them, under `prefix`. Null when it cannot list them. */

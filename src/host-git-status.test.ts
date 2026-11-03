@@ -40,6 +40,31 @@ test("status is re-based onto a root inside the repository", async () => {
   }
 });
 
+test("line counts, asked for, cover tracked, untracked and binary files under the root", async () => {
+  const dir = await repo();
+  try {
+    await writeFile(path.join(dir, "pkg", "new", "two.txt"), "a\nb\nno newline");
+    await writeFile(path.join(dir, "pkg", "new", "blob.bin"), Buffer.from([1, 0, 2]));
+    const status = await hostGitStatus(path.join(dir, "pkg"), { lineCounts: true });
+    const counts = Object.fromEntries(status.entries.map((entry) => [
+      entry.path,
+      entry.binary ? "bin" : `+${entry.additions} -${entry.deletions}`,
+    ]));
+    assert.deepEqual(counts, {
+      "gone.ts": "+0 -1",
+      "src/a.ts": "+1 -1",
+      "new/deep/b.ts": "+1 -0",
+      "new/two.txt": "+3 -0",
+      "new/blob.bin": "bin",
+    });
+    // Without the option (a bb environment, which bb--git counts) nothing is counted.
+    const plain = await hostGitStatus(path.join(dir, "pkg"));
+    assert.equal(plain.entries.some((entry) => entry.additions !== undefined || entry.binary !== undefined), false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("a folder outside any repository is not one", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "fe-nogit-"));
   try {
@@ -79,7 +104,7 @@ test("branch changes compare with the base bb--git names, local branch first", a
     await writeFile(path.join(dir, "top.ts"), "changed\n");
     git("commit", "-qam", "change");
     const changes = await hostBranchChanges(path.join(dir, "pkg"), "trunk");
-    assert.deepEqual(changes, { base: "trunk", commits: 1, entries: [{ path: "a.ts", status: "modified" }], pullRequest: null });
+    assert.deepEqual(changes, { base: "trunk", commits: 1, entries: [{ path: "a.ts", status: "modified", additions: 1, deletions: 1, binary: false }], pullRequest: null });
     assert.match((await hostGitDiff(path.join(dir, "pkg"), "a.ts", "base", { base: "trunk" })) ?? "", /-one\n\+two/u);
     // On the base branch with no pull request there is nothing to compare.
     git("checkout", "-q", "trunk");

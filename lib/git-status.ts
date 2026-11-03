@@ -15,6 +15,55 @@ export interface GitStatusEntry {
   status: GitFileStatus;
   staged?: boolean;
   unstaged?: boolean;
+  /** Lines added and deleted; absent when unknown or binary. */
+  additions?: number;
+  deletions?: number;
+  /** Git sees the file as binary: changed, with no lines to count. */
+  binary?: boolean;
+}
+
+export type LineCounts = Pick<GitStatusEntry, "additions" | "deletions" | "binary">;
+
+/**
+ * Parse `git diff --numstat -z`: "added\tdeleted\tpath", or for a rename
+ * "added\tdeleted\t" followed by the old and the new path. A binary file reads
+ * "-\t-". Keyed by the (new) path as git printed it.
+ */
+export function parseNumstatZ(output: string): Map<string, LineCounts> {
+  const fields = output.split("\0");
+  const counts = new Map<string, LineCounts>();
+  for (let index = 0; index < fields.length; index += 1) {
+    const match = /^(-|\d+)\t(-|\d+)\t([\s\S]*)$/u.exec(fields[index]!);
+    if (match === null) continue;
+    let path = match[3]!;
+    if (path === "") path = fields[(index += 2)] ?? "";
+    if (path === "") continue;
+    counts.set(path, match[1] === "-" || match[2] === "-"
+      ? { binary: true }
+      : { additions: Number(match[1]), deletions: Number(match[2]), binary: false });
+  }
+  return counts;
+}
+
+/** Entries with the line counts known for their paths; others stay without. */
+export function withLineCounts(
+  entries: readonly GitStatusEntry[],
+  counts: ReadonlyMap<string, LineCounts>,
+): GitStatusEntry[] {
+  return entries.map((entry) => {
+    const known = counts.get(entry.path);
+    return known === undefined ? entry : { ...entry, ...known };
+  });
+}
+
+/** Lines in a text file's content as git counts them for a new file; null for binary content. */
+export function countLines(content: Uint8Array): number | null {
+  // Git's own test: a NUL byte in the first 8000 bytes makes a file binary.
+  if (content.subarray(0, 8000).includes(0)) return null;
+  let lines = 0;
+  for (const byte of content) if (byte === 10) lines += 1;
+  if (content.length > 0 && content[content.length - 1] !== 10) lines += 1;
+  return lines;
 }
 
 /** Most important first: a folder shows the highest-ranked state inside it. */

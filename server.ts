@@ -10,7 +10,8 @@ import { renameEntry } from "./src/rename-entry";
 import { moveEntry } from "./src/move-entry";
 import { copyTextToClipboard, revealInExplorer } from "./src/os-actions";
 import { resolveRoot } from "./src/roots";
-import { bbGitBranch, bbGitBranchEntries, bbGitBranchPatch, environmentForRoot } from "./src/bb-git";
+import { bbGitBranch, bbGitBranchEntries, bbGitBranchPatch, bbGitUncommittedCounts, environmentForRoot } from "./src/bb-git";
+import { withLineCounts } from "./lib/git-status";
 import type { GitStatusResult } from "./shared";
 import { registerMaterialIconRoute } from "./src/material-icons-route";
 import { invalidateListings, listDir } from "./src/listing";
@@ -334,8 +335,25 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
     gitStatus: async ({ rootId, threadId }) => {
       const root = resolveRoot(rootId);
       if (root === undefined) return { isRepository: false, entries: [], truncated: false };
-      const status = await host.call("gitStatus", { rootPath: root.rootPath }, { hostId: root.hostId });
+      const environmentId = await environmentForRoot(bb, root.hostId, root.rootPath).catch(() => null);
+      // Line counts come from bb--git for a bb environment, as bb's panel shows
+      // them; git on the host counts them for any other folder.
+      const status = await host.call(
+        "gitStatus",
+        { rootPath: root.rootPath, lineCounts: environmentId === null },
+        { hostId: root.hostId },
+      );
       if (!status.isRepository) return status;
+      if (environmentId !== null && status.entries.length > 0) {
+        const prefix = await repositoryPrefix(root);
+        const counts = prefix === null
+          ? null
+          : await bbGitUncommittedCounts(bb, environmentId, prefix).catch((cause) => {
+            bb.log.warn(`uncommitted line counts for ${root.rootPath}: ${cause instanceof Error ? cause.message : String(cause)}`);
+            return null;
+          });
+        if (counts !== null) status.entries = withLineCounts(status.entries, counts);
+      }
       const pullRequest = threadId ? await threadPullRequest(bb, threadId) : null;
       const branch = await branchChanges(root, pullRequest).catch((cause) => {
         bb.log.warn(`branch changes for ${root.rootPath}: ${cause instanceof Error ? cause.message : String(cause)}`);

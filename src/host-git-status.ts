@@ -1,5 +1,16 @@
 import { execFile } from "node:child_process";
-import { parseNameStatusZ, parsePorcelainZ, type GitStatusEntry } from "../lib/git-status";
+import { lstat, readFile } from "node:fs/promises";
+import path from "node:path";
+import {
+  countLines,
+  parseNameStatusZ,
+  parseNumstatZ,
+  parsePorcelainZ,
+  withLineCounts,
+  type GitStatusEntry,
+  type LineCounts,
+} from "../lib/git-status";
+import { mapLimit } from "./pool";
 
 /** A repository with this many changes is past what a tree can usefully colour. */
 const MAX_ENTRIES = 5000;
@@ -84,7 +95,10 @@ function git(cwd: string, args: readonly string[]): Promise<string | null> {
  * `rootPath`. The root can be a subdirectory of the repository — a monorepo
  * package pinned as a project — so changes outside it are dropped.
  */
-export async function hostGitStatus(rootPath: string): Promise<HostGitStatus> {
+export async function hostGitStatus(
+  rootPath: string,
+  options: { lineCounts?: boolean } = {},
+): Promise<HostGitStatus> {
   const prefix = await hostGitPrefix(rootPath);
   if (prefix === null) return { isRepository: false, entries: [], truncated: false };
   // Every untracked file, not just its top folder, so a new file deep in a new
@@ -97,8 +111,50 @@ export async function hostGitStatus(rootPath: string): Promise<HostGitStatus> {
     "--untracked-files=all",
   ]);
   if (status === null) return { isRepository: true, entries: [], truncated: false };
-  const entries = parsePorcelainZ(status, prefix);
-  return { isRepository: true, entries: entries.slice(0, MAX_ENTRIES), truncated: entries.length > MAX_ENTRIES };
+  const parsed = parsePorcelainZ(status, prefix);
+  const listed = parsed.slice(0, MAX_ENTRIES);
+  const entries = options.lineCounts === true ? await uncommittedLineCounts(rootPath, prefix, listed) : listed;
+  return { isRepository: true, entries, truncated: parsed.length > MAX_ENTRIES };
+}
+
+/** Untracked files past these bounds keep no count rather than slow the poll. */
+const MAX_COUNTED_UNTRACKED = 500;
+const MAX_COUNTED_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Each change's added and deleted lines against HEAD, as `git diff HEAD`
+ * counts them; an untracked file counts all its lines as added. For a root
+ * that is no bb environment; bb--git counts them for one that is.
+ */
+async function uncommittedLineCounts(
+  rootPath: string,
+  prefix: string,
+  entries: readonly GitStatusEntry[],
+): Promise<GitStatusEntry[]> {
+  const counts = new Map<string, LineCounts>();
+  const numstat = await git(rootPath, ["--no-optional-locks", "diff", "--numstat", "-z", "HEAD"]);
+  for (const [repoPath, known] of parseNumstatZ(numstat ?? "")) {
+    if (repoPath.startsWith(prefix)) counts.set(repoPath.slice(prefix.length), known);
+  }
+  const untracked = entries.filter((entry) => entry.status === "untracked").slice(0, MAX_COUNTED_UNTRACKED);
+  await mapLimit(untracked, 16, async (entry) => {
+    const known = await untrackedLineCount(path.join(rootPath, entry.path));
+    if (known !== null) counts.set(entry.path, known);
+  });
+  return withLineCounts(entries, counts);
+}
+
+async function untrackedLineCount(filePath: string): Promise<LineCounts | null> {
+  try {
+    // A symlink, FIFO or device keeps no count: reading one could block or leave the root.
+    const stat = await lstat(filePath);
+    if (!stat.isFile() || stat.size > MAX_COUNTED_BYTES) return null;
+    const lines = countLines(await readFile(filePath));
+    return lines === null ? { binary: true } : { additions: lines, deletions: 0, binary: false };
+  } catch {
+    // Gone since git status listed it.
+    return null;
+  }
 }
 
 /** Where `rootPath` sits in its repository ("" at the top, "pkg/" below it); null outside one. */
@@ -178,13 +234,14 @@ export async function hostBranchChanges(
   const { fork, head, pullRequest } = compared;
   const count = Number((await git(rootPath, ["rev-list", "--count", `${fork}..${head}`]))?.trim() ?? "0");
   if (count === 0) return { base: compared.base, commits: 0, entries: [], pullRequest };
-  const output = await git(rootPath, [
-    "--no-optional-locks", "diff", "--name-status", "-z", "--find-renames", "--relative", fork, head,
-  ]);
+  const [output, numstat] = await Promise.all(["--name-status", "--numstat"].map((format) => git(rootPath, [
+    "--no-optional-locks", "diff", format, "-z", "--find-renames", "--relative", fork, head,
+  ])));
+  const entries = withLineCounts(parseNameStatusZ(output ?? "").slice(0, MAX_ENTRIES), parseNumstatZ(numstat ?? ""));
   return {
     base: compared.base,
     commits: Number.isFinite(count) ? count : 0,
-    entries: parseNameStatusZ(output ?? "").slice(0, MAX_ENTRIES),
+    entries,
     pullRequest,
   };
 }

@@ -40,9 +40,13 @@ export const hostContract = defineRpcContract({
       filesWithMatches: z.number().int().nonnegative(),
     }).strict(),
   },
-  /** Working-tree status, run with the machine's own git where the root lives. */
+  /**
+   * Working-tree status, run with the machine's own git where the root lives.
+   * `lineCounts` adds each file's added and deleted lines, for a root that is
+   * no bb environment (bb--git counts them for one that is).
+   */
   gitStatus: {
-    input: z.object({ rootPath: z.string().min(1) }).strict(),
+    input: z.object({ rootPath: z.string().min(1), lineCounts: z.boolean().optional() }).strict(),
     output: gitStatusResultSchema.omit({ branch: true }),
   },
   /** Where the root sits in its repository ("" at the top, "pkg/" below it); null outside one. */

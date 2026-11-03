@@ -33,7 +33,8 @@ function sameEntries(left: GitStatusResult["entries"], right: GitStatusResult["e
   return left.every((entry, index) => {
     const other = right[index]!;
     return entry.path === other.path && entry.status === other.status
-      && entry.staged === other.staged && entry.unstaged === other.unstaged;
+      && entry.staged === other.staged && entry.unstaged === other.unstaged
+      && entry.additions === other.additions && entry.deletions === other.deletions && entry.binary === other.binary;
   });
 }
 
