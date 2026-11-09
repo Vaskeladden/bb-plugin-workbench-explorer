@@ -1,0 +1,10 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "forkProcessing stays here because Renovate admits a fork before it reads the org-inherited config or resolves presets. This public repository loads the shared public preset; it cannot read the private org config."
+  ],
+  "forkProcessing": "enabled",
+  "extends": [
+    "github>Vaskeladden/status:renovate-public#refs/heads/renovate-policy"
+  ]
+}
