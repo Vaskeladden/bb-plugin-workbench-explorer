@@ -17,7 +17,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
 import { acquireRailInset, syncRailInset } from "@/lib/rail-inset";
 import { usePortalScopeProps } from "@/lib/portal-scope";
-import { RAIL_EVENT, initializeRailOpen, writeStoredOpen } from "@/lib/rail-state";
+import { RAIL_EVENT, noteRailOpen, showThread, writeStoredOpen } from "@/lib/rail-state";
 import { getFindInFolder, subscribeFindInFolder } from "@/lib/find-in-folder";
 import { useRailWidthPx } from "@/lib/rail-width";
 import { useWindowFrame } from "@/lib/window-frame";
@@ -105,13 +105,12 @@ function writePinnedRoot(id: string): void {
 export function GlobalFileExplorerRail() {
   const rpc = useRpc<typeof rpcContract>();
   const { threadId, projectId } = useBbContext();
-  const { values, isLoading: settingsLoading } = useSettings();
+  const { values } = useSettings();
   const compact = useIsCompactViewport();
   const railWidthPx = useRailWidthPx();
   const frame = useWindowFrame();
   const portalScopeProps = usePortalScopeProps();
   const insetHolderId = useRef(`file-explorer:window:${Math.random().toString(36).slice(2)}`).current;
-  const initialized = useRef(false);
   const [open, setOpen] = useState(false);
   const [ready, setReady] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(readPinnedRoot);
@@ -151,18 +150,20 @@ export function GlobalFileExplorerRail() {
     writeStoredTab("search");
   }, [findInFolder]);
 
+  // The rail follows the thread on screen: open where it was left open,
+  // closed everywhere else. A phone-sized window starts every thread closed
+  // and remembers nothing, since the rail covers the whole chat there.
   useEffect(() => {
-    if (settingsLoading || initialized.current) return;
-    initialized.current = true;
-    if (compact) writeStoredOpen(false);
-    setOpen(compact ? false : initializeRailOpen(values?.openByDefault !== false));
+    setOpen(showThread(compact ? null : threadId));
     setReady(true);
-  }, [compact, settingsLoading, values?.openByDefault]);
+  }, [compact, threadId]);
 
   useEffect(() => {
     const onRailEvent = (event: Event) => {
       const next = (event as CustomEvent<boolean>).detail;
-      if (typeof next === "boolean") setOpen(next);
+      if (typeof next !== "boolean") return;
+      noteRailOpen(next);
+      setOpen(next);
     };
     window.addEventListener(RAIL_EVENT, onRailEvent);
     return () => window.removeEventListener(RAIL_EVENT, onRailEvent);
