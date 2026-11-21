@@ -124,8 +124,8 @@ export function GlobalFileExplorerRail() {
   // A right-clicked "Find in Folder" opens the tab that answers it. The panel
   // reads the same request and scopes its query to that folder.
   const findInFolder = useSyncExternalStore(subscribeFindInFolder, getFindInFolder);
-  // Another plugin (conductor-actions' header "Changes" button) toggles the
-  // Changes tab: a second click closes the rail again.
+  // Another plugin (the header "Changes" button in Vaskeladden for bb) toggles
+  // the Changes tab: a second click closes the rail again.
   const showingChanges = useRef(false);
   useEffect(() => {
     const toggleChanges = () => {
