@@ -72,7 +72,7 @@ bun test              # Run the unit tests
 
 ### Lib (`lib/`)
 
-- **`rail-state.ts`** — Rail open/closed state. Uses localStorage + custom event (`RAIL_EVENT`) for cross-surface sync. `initializeRailOpen` reads stored value, `toggleRailOpen` flips without waiting for settings.
+- **`rail-state.ts`** — Rail open/closed state. Uses localStorage + custom event (`RAIL_EVENT`) for cross-surface sync. The state belongs to the thread on screen: `showThread(threadId)` gives the rail the state that thread was left in (closed when it was never opened there; the open threads are one JSON list in localStorage), `writeStoredOpen` opens or closes and remembers it for that thread, `toggleRailOpen` flips before the rail has mounted.
 - **`rail-width.ts`** — Rail width sizing. Default 216px, range 160–720px. Clamped so chat retains at least 320px. Persisted via localStorage. Live drag updates without persisting.
 - **`rail-inset.ts`** — Body padding reservation for the fixed rail overlay. Acquired by rail, released on cleanup.
 - **`chat-draft-bus.ts`** — Bus for adding paths to open chat drafts. Stack-based (last registered composer wins). Scope keys derived from `PluginComposerScope` (thread, queued-message, side-chat, new-thread).
@@ -152,7 +152,7 @@ Three layers of persistence:
 
 | What                                                                                        | Storage                       | Key                                   |
 | ------------------------------------------------------------------------------------------- | ----------------------------- | ------------------------------------- |
-| Settings (openByDefault, confirmDelete, showSkipped, ignoredFolders, treeRoot, searchRoots) | `bb.settings.define`          | survives BB restarts                  |
+| Settings (confirmDelete, showSkipped, ignoredFolders, treeRoot, searchRoots) | `bb.settings.define`          | survives BB restarts                  |
 | Rail open state                                                                             | `localStorage` + custom event | `bb-plugin-workbench-explorer:rail-open`   |
 | Rail width                                                                                  | `localStorage` + custom event | `bb-plugin-workbench-explorer:rail-width`  |
 | Pinned root ID                                                                              | `localStorage`                | `bb-plugin-workbench-explorer:pinned-root` |
@@ -314,7 +314,6 @@ Defined in `server.ts` via `bb.settings.define`:
 
 | Setting          | Type               | Label                                         | Default         | Notes                                            |
 | ---------------- | ------------------ | --------------------------------------------- | --------------- | ------------------------------------------------ |
-| `openByDefault`  | boolean            | Show the pinned file explorer when BB opens   | `true`          | Controls rail visibility on startup              |
 | `confirmDelete`  | boolean            | Confirm before deleting files and folders     | `true`          | Safety dialog for delete/rename                  |
 | `showSkipped`    | boolean            | Show hidden files and folders                 | `false`         | Reveals `.git`, `node_modules`, etc.             |
 | `ignoredFolders` | string (multiline) | Folders to hide by default                    | `""` (empty)    | Folder names hidden in tree and search; one name per line; leave empty to hide nothing |

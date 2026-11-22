@@ -155,11 +155,6 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
   });
 
   const settings = bb.settings.define({
-    openByDefault: {
-      type: "boolean",
-      label: "Show the pinned file explorer when BB opens",
-      default: true,
-    },
     confirmDelete: {
       type: "boolean",
       label: "Confirm before deleting files and folders",
