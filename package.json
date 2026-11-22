@@ -38,7 +38,7 @@
     "@radix-ui/react-popover": "^1.1.19",
     "@radix-ui/react-select": "^2.3.3",
     "@radix-ui/react-tooltip": "^1.2.12",
-    "@types/better-sqlite3": "^7.6.12",
+    "@types/better-sqlite3": "^9.0.0",
     "@types/node": "^26.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
