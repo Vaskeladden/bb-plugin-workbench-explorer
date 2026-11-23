@@ -48,7 +48,7 @@
     "hono": "^4.11.9",
     "sonner": "^2.0.0",
     "tailwind-merge": "^3.4.0",
-    "typescript": "^5.7.0",
+    "typescript": "^7.0.0",
     "vaul": "^1.1.2"
   },
   "description": "A VS Code-style file explorer pinned beside every BB thread: git colours and diffs, Material icons, Quick Open, search and replace with preview, keyboard navigation, drag and drop, and Trash with undo.",
