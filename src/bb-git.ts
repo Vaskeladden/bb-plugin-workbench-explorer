@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import type { BranchPaths } from "../host-contract";
 import type { GitStatusEntry, LineCounts } from "../lib/git-status";
 
 /**
@@ -39,7 +40,7 @@ export type BbGitFile = z.infer<typeof fileSchema>;
 const patchSchema = z.object({ path: z.string(), patch: z.string(), truncated: z.boolean() });
 
 const filesSchema = z.discriminatedUnion("outcome", [
-  z.object({ outcome: z.literal("available"), files: z.array(fileSchema), initialPatches: z.array(patchSchema) }),
+  z.object({ outcome: z.literal("available"), files: z.array(fileSchema), truncated: z.boolean(), mergeBaseRef: z.string().nullable(), initialPatches: z.array(patchSchema) }),
   failureSchema.extend({ outcome: z.literal("not_applicable") }),
   failureSchema.extend({ outcome: z.literal("unavailable") }),
 ]);
@@ -172,9 +173,13 @@ export async function bbGitBranchEntries(
   environmentId: string,
   base: string,
   prefix: string,
-): Promise<GitStatusEntry[] | null> {
+): Promise<{ entries: GitStatusEntry[]; paths: BranchPaths } | null> {
   const listing = await branchFiles(bb, environmentId, base);
-  return listing === null ? null : branchEntries(listing.files, prefix);
+  if (listing === null) return null;
+  const entries = branchEntries(listing.files, prefix);
+  if (!listing.truncated) return { entries, paths: entries.map((entry) => entry.path) };
+  if (listing.mergeBaseRef === null) throw new Error("Truncated branch listing has no merge base.");
+  return { entries, paths: { mergeBaseRef: listing.mergeBaseRef } };
 }
 
 /** A diff past this size is not worth drawing in a panel. */

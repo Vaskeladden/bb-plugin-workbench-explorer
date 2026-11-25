@@ -16,7 +16,7 @@ export default experimental_defineHostEntry({
     searchInFiles: ({ rootPath, ignoredFolders, ...input }) =>
       searchHostInFiles(rootPath, input, new Set(ignoredFolders)),
     removePath: ({ rootPath, relativePath }) => removeHostPath(rootPath, relativePath),
-    gitStatus: ({ rootPath, lineCounts }) => hostGitStatus(rootPath, { lineCounts: lineCounts ?? false }),
+    gitStatus: ({ rootPath, lineCounts, branchPaths }) => hostGitStatus(rootPath, { lineCounts, branchPaths }),
     gitPrefix: async ({ rootPath }) => ({ prefix: await hostGitPrefix(rootPath) }),
     gitBranchChanges: async ({ rootPath, base, pullRequest }) => ({
       branch: await hostBranchChanges(rootPath, base ?? null, pullRequest ?? null),

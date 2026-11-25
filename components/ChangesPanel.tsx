@@ -139,7 +139,7 @@ export function ChangesPanel({ root }: { root: Workspace | null }) {
     }
   };
 
-  const nothing = staged.length === 0 && unstaged.length === 0 && (branch === null || branchEntries.length === 0);
+  const nothing = result.counts.total === 0;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -151,8 +151,8 @@ export function ChangesPanel({ root }: { root: Workspace | null }) {
         ) : null}
         {nothing ? null : (
           <ChangeSummary
-            uncommitted={result.entries}
-            branch={branch === null ? [] : branchEntries}
+            uncommitted={result.entries.length === result.counts.uncommitted ? result.entries : []}
+            branch={branchEntries.length === result.counts.branch ? branchEntries : []}
             branchLabel={branch === null ? "" : branch.pullRequest ? `#${branch.pullRequest} vs ${branch.base}` : `vs ${branch.base}`}
           />
         )}
@@ -220,15 +220,20 @@ export function ChangesPanel({ root }: { root: Workspace | null }) {
             ))}
           </Group>
         ) : null}
-        {branch !== null && branchEntries.length > 0 ? (
+        {branch !== null && result.counts.branch > 0 ? (
           <Group
             id="branch"
             title={branch.pullRequest ? `#${branch.pullRequest} vs ${branch.base}` : `vs ${branch.base}`}
             subtitle={`${branch.commits} commit${branch.commits === 1 ? "" : "s"}`}
-            count={branchEntries.length}
+            count={result.counts.branch}
             collapsed={collapsed.has("branch")}
             onToggle={toggle}
           >
+            {branchEntries.length < result.counts.branch ? (
+              <p className="px-1.5 py-1 text-[10px] text-muted-foreground">
+                Showing {branchEntries.length} of {result.counts.branch} branch files.
+              </p>
+            ) : null}
             {branchEntries.map((entry) => (
               <Row
                 key={`b:${entry.path}`}
@@ -243,8 +248,8 @@ export function ChangesPanel({ root }: { root: Workspace | null }) {
             ))}
           </Group>
         ) : null}
-        {result.truncated ? (
-          <p className="px-1.5 py-1 text-[10px] text-muted-foreground">Showing the first {result.entries.length} changes.</p>
+        {result.entries.length < result.counts.uncommitted ? (
+          <p className="px-1.5 py-1 text-[10px] text-muted-foreground">Showing {result.entries.length} of {result.counts.uncommitted} uncommitted files.</p>
         ) : null}
       </div>
     </div>

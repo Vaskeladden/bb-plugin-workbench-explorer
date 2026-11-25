@@ -219,22 +219,19 @@ export function GlobalFileExplorerRail() {
 
   const chosen = choices.find((choice) => choice.id === selectedId);
   const gitStatus = useGitStatus(chosen?.workspace.rootId ?? null).result;
-  const changeCount = gitStatus.entries.length;
+  const changeCount = gitStatus.counts.total;
   // Tell other plugins what the Changes tab holds for the open thread, so a
   // header button can show the count without polling git a second time.
   useEffect(() => {
-    const branchPaths = gitStatus.branch?.entries.map((entry) => entry.path) ?? [];
     const detail: ExplorerChangesSummary = {
       threadId,
-      uncommitted: gitStatus.entries.length,
-      branch: branchPaths.length,
-      total: new Set([...gitStatus.entries.map((entry) => entry.path), ...branchPaths]).size,
+      ...gitStatus.counts,
       base: gitStatus.branch?.base ?? null,
       pullRequest: gitStatus.branch?.pullRequest ?? null,
       showing: ready && open && tab === "changes",
       lines: {
-        uncommitted: publishedLines(gitStatus.entries),
-        branch: gitStatus.branch ? publishedLines(gitStatus.branch.entries) : null,
+        uncommitted: gitStatus.entries.length === gitStatus.counts.uncommitted ? publishedLines(gitStatus.entries) : null,
+        branch: gitStatus.branch && gitStatus.branch.entries.length === gitStatus.counts.branch ? publishedLines(gitStatus.branch.entries) : null,
       },
     };
     showingChanges.current = detail.showing;

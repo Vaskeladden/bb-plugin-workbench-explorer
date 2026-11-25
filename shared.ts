@@ -55,8 +55,11 @@ export const gitStatusResultSchema = z.object({
   /** False outside a work tree, or on a machine without git. */
   isRepository: z.boolean(),
   entries: z.array(gitStatusEntrySchema),
-  /** The repository had more changes than the explorer colours. */
-  truncated: z.boolean(),
+  counts: z.object({
+    uncommitted: z.number().int().nonnegative(),
+    branch: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
   branch: gitBranchChangesSchema.nullable().optional(),
 });
 export type GitStatusResult = z.infer<typeof gitStatusResultSchema>;

@@ -12,7 +12,6 @@ import { copyTextToClipboard, revealInExplorer } from "./src/os-actions";
 import { resolveRoot } from "./src/roots";
 import { bbGitBranch, bbGitBranchEntries, bbGitBranchPatch, bbGitUncommittedCounts, environmentForRoot } from "./src/bb-git";
 import { withLineCounts } from "./lib/git-status";
-import type { GitStatusResult } from "./shared";
 import { registerMaterialIconRoute } from "./src/material-icons-route";
 import { invalidateListings, listDir } from "./src/listing";
 import {
@@ -33,8 +32,6 @@ import {
 export { rpcContract } from "./contract";
 
 const THREAD_PR_TTL_MS = 30_000;
-/** A branch with this many changed files is past what a tree can usefully colour. */
-const MAX_BRANCH_ENTRIES = 5000;
 const threadPullRequests = new Map<string, { at: number; value: { repo: string; number: number } | null }>();
 
 /**
@@ -98,31 +95,27 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
   const branchChanges = async (
     root: { hostId: string; rootPath: string },
     pullRequest: { repo: string; number: number } | null,
-  ): Promise<GitStatusResult["branch"]> => {
-    const environmentId = await environmentForRoot(bb, root.hostId, root.rootPath);
-    if (environmentId === null) {
-      const { branch } = await host.call(
-        "gitBranchChanges",
-        { rootPath: root.rootPath, ...(pullRequest ? { pullRequest } : {}) },
-        { hostId: root.hostId },
-      );
-      return branch;
-    }
-    const branch = await bbGitBranch(bb, environmentId);
-    if (branch === null) return null;
-    if (branch.onBase) {
+    environmentId: string | null,
+  ) => {
+    let base: string | undefined;
+    if (environmentId !== null) {
+      const branch = await bbGitBranch(bb, environmentId);
+      if (branch === null) return null;
+      if (!branch.onBase) {
+        const prefix = await repositoryPrefix(root);
+        const listing = prefix === null ? null : await bbGitBranchEntries(bb, environmentId, branch.base, prefix);
+        if (listing === null) return null;
+        return { details: { base: branch.base, commits: branch.commits, entries: listing.entries, pullRequest: null }, paths: listing.paths };
+      }
       if (pullRequest === null) return null;
-      const { branch: changes } = await host.call(
-        "gitBranchChanges",
-        { rootPath: root.rootPath, base: branch.base, pullRequest },
-        { hostId: root.hostId },
-      );
-      return changes;
+      base = branch.base;
     }
-    const prefix = await repositoryPrefix(root);
-    const entries = prefix === null ? null : await bbGitBranchEntries(bb, environmentId, branch.base, prefix);
-    if (entries === null) return null;
-    return { base: branch.base, commits: branch.commits, entries: entries.slice(0, MAX_BRANCH_ENTRIES), pullRequest: null };
+    const { branch } = await host.call("gitBranchChanges", {
+      rootPath: root.rootPath, ...(base ? { base } : {}), ...(pullRequest ? { pullRequest } : {}),
+    }, { hostId: root.hostId });
+    if (branch === null) return null;
+    const { remainingPaths, ...details } = branch;
+    return { details, paths: [...details.entries.map((entry) => entry.path), ...remainingPaths] };
   };
 
   /**
@@ -329,13 +322,18 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
     },
     gitStatus: async ({ rootId, threadId }) => {
       const root = resolveRoot(rootId);
-      if (root === undefined) return { isRepository: false, entries: [], truncated: false };
+      if (root === undefined) return { isRepository: false, entries: [], counts: { uncommitted: 0, branch: 0, total: 0 } };
       const environmentId = await environmentForRoot(bb, root.hostId, root.rootPath).catch(() => null);
+      const pullRequest = threadId ? await threadPullRequest(bb, threadId) : null;
+      const comparison = await branchChanges(root, pullRequest, environmentId).catch((cause) => {
+        bb.log.warn(`branch changes for ${root.rootPath}: ${cause instanceof Error ? cause.message : String(cause)}`);
+        return null;
+      });
       // Line counts come from bb--git for a bb environment, as bb's panel shows
       // them; git on the host counts them for any other folder.
       const status = await host.call(
         "gitStatus",
-        { rootPath: root.rootPath, lineCounts: environmentId === null },
+        { rootPath: root.rootPath, lineCounts: environmentId === null, branchPaths: comparison?.paths ?? [] },
         { hostId: root.hostId },
       );
       if (!status.isRepository) return status;
@@ -349,12 +347,7 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
           });
         if (counts !== null) status.entries = withLineCounts(status.entries, counts);
       }
-      const pullRequest = threadId ? await threadPullRequest(bb, threadId) : null;
-      const branch = await branchChanges(root, pullRequest).catch((cause) => {
-        bb.log.warn(`branch changes for ${root.rootPath}: ${cause instanceof Error ? cause.message : String(cause)}`);
-        return null;
-      });
-      return { ...status, branch };
+      return { ...status, branch: comparison?.details ?? null };
     },
     gitAction: async ({ rootId, action, relativePaths }) => {
       const root = resolveRoot(rootId);

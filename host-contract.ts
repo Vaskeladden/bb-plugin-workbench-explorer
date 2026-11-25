@@ -2,6 +2,13 @@ import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { fileSearchMatchSchema, gitBranchChangesSchema, gitStatusResultSchema, treeEntrySchema } from "./shared";
 
+// A complete root-relative list, or bb--git's merge base when its list was truncated.
+const branchPathsSchema = z.union([
+  z.array(z.string()),
+  z.object({ mergeBaseRef: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u) }).strict(),
+]);
+export type BranchPaths = z.infer<typeof branchPathsSchema>;
+
 export const hostContract = defineRpcContract({
   statPath: {
     input: z.object({ rootPath: z.string().min(1), relativePath: z.string() }).strict(),
@@ -46,7 +53,7 @@ export const hostContract = defineRpcContract({
    * no bb environment (bb--git counts them for one that is).
    */
   gitStatus: {
-    input: z.object({ rootPath: z.string().min(1), lineCounts: z.boolean().optional() }).strict(),
+    input: z.object({ rootPath: z.string().min(1), lineCounts: z.boolean().optional(), branchPaths: branchPathsSchema.optional() }).strict(),
     output: gitStatusResultSchema.omit({ branch: true }),
   },
   /** Where the root sits in its repository ("" at the top, "pkg/" below it); null outside one. */
@@ -66,7 +73,7 @@ export const hostContract = defineRpcContract({
       /** The thread's pull request, compared with the base when the checkout is on the base branch. */
       pullRequest: z.object({ repo: z.string().min(3), number: z.number().int().positive() }).strict().optional(),
     }).strict(),
-    output: z.object({ branch: gitBranchChangesSchema.nullable() }).strict(),
+    output: z.object({ branch: gitBranchChangesSchema.extend({ remainingPaths: z.array(z.string()) }).nullable() }).strict(),
   },
   gitDiff: {
     input: z.object({

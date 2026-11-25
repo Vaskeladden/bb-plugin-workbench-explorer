@@ -10,6 +10,8 @@ import {
   type GitStatusEntry,
   type LineCounts,
 } from "../lib/git-status";
+import type { BranchPaths } from "../host-contract";
+import type { GitStatusResult } from "../shared";
 import { mapLimit } from "./pool";
 
 /** A repository with this many changes is past what a tree can usefully colour. */
@@ -17,18 +19,14 @@ const MAX_ENTRIES = 5000;
 const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const TIMEOUT_MS = 10_000;
 
-export interface HostGitStatus {
-  /** False outside a work tree, or on a machine without git. */
-  isRepository: boolean;
-  entries: GitStatusEntry[];
-  truncated: boolean;
-}
+type HostGitStatus = Omit<GitStatusResult, "branch">;
 
 export interface HostBranchChanges {
   /** The branch the comparison runs against, e.g. "main". */
   base: string;
   commits: number;
   entries: GitStatusEntry[];
+  remainingPaths: string[];
   pullRequest?: number | null;
 }
 
@@ -97,10 +95,10 @@ function git(cwd: string, args: readonly string[]): Promise<string | null> {
  */
 export async function hostGitStatus(
   rootPath: string,
-  options: { lineCounts?: boolean } = {},
+  options: { lineCounts?: boolean; branchPaths?: BranchPaths } = {},
 ): Promise<HostGitStatus> {
   const prefix = await hostGitPrefix(rootPath);
-  if (prefix === null) return { isRepository: false, entries: [], truncated: false };
+  if (prefix === null) return { isRepository: false, entries: [], counts: { uncommitted: 0, branch: 0, total: 0 } };
   // Every untracked file, not just its top folder, so a new file deep in a new
   // folder is coloured where it is.
   const status = await git(rootPath, [
@@ -110,11 +108,23 @@ export async function hostGitStatus(
     "-z",
     "--untracked-files=all",
   ]);
-  if (status === null) return { isRepository: true, entries: [], truncated: false };
+  if (status === null) throw new Error("Could not read working-tree status.");
   const parsed = parsePorcelainZ(status, prefix);
   const listed = parsed.slice(0, MAX_ENTRIES);
   const entries = options.lineCounts === true ? await uncommittedLineCounts(rootPath, prefix, listed) : listed;
-  return { isRepository: true, entries, truncated: parsed.length > MAX_ENTRIES };
+  let branchPaths = options.branchPaths ?? [];
+  if (!Array.isArray(branchPaths)) {
+    // Match bb--git's rename detection across the whole repo before scoping to the pinned folder.
+    const names = await git(rootPath, ["diff", "--name-only", "-z", "-M", "--no-relative", branchPaths.mergeBaseRef, "HEAD", "--"]);
+    if (names === null) throw new Error("Could not count files changed since the merge base.");
+    branchPaths = names.split("\0").filter((name) => name.length > prefix.length && name.startsWith(prefix))
+      .map((name) => name.slice(prefix.length));
+  }
+  const paths = new Set(branchPaths);
+  const branch = paths.size;
+  const dirtyPaths = new Set(parsed.map((entry) => entry.path));
+  for (const name of dirtyPaths) paths.add(name);
+  return { isRepository: true, entries, counts: { uncommitted: dirtyPaths.size, branch, total: paths.size } };
 }
 
 /** Untracked files past these bounds keep no count rather than slow the poll. */
@@ -233,15 +243,18 @@ export async function hostBranchChanges(
   if (compared === null) return null;
   const { fork, head, pullRequest } = compared;
   const count = Number((await git(rootPath, ["rev-list", "--count", `${fork}..${head}`]))?.trim() ?? "0");
-  if (count === 0) return { base: compared.base, commits: 0, entries: [], pullRequest };
+  if (count === 0) return { base: compared.base, commits: 0, entries: [], remainingPaths: [], pullRequest };
   const [output, numstat] = await Promise.all(["--name-status", "--numstat"].map((format) => git(rootPath, [
     "--no-optional-locks", "diff", format, "-z", "--find-renames", "--relative", fork, head,
   ])));
-  const entries = withLineCounts(parseNameStatusZ(output ?? "").slice(0, MAX_ENTRIES), parseNumstatZ(numstat ?? ""));
+  if (output == null) throw new Error("Could not list branch changes.");
+  const files = parseNameStatusZ(output);
+  const entries = withLineCounts(files.slice(0, MAX_ENTRIES), parseNumstatZ(numstat ?? ""));
   return {
     base: compared.base,
     commits: Number.isFinite(count) ? count : 0,
     entries,
+    remainingPaths: files.slice(MAX_ENTRIES).map((entry) => entry.path),
     pullRequest,
   };
 }

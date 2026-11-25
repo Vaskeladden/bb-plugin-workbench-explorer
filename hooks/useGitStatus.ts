@@ -12,7 +12,7 @@ const POLL_MS = 3000;
 
 type Rpc = ReturnType<typeof useRpc<typeof rpcContract>>;
 
-const EMPTY: GitStatusResult = { isRepository: false, entries: [], truncated: false };
+const EMPTY: GitStatusResult = { isRepository: false, entries: [], counts: { uncommitted: 0, branch: 0, total: 0 } };
 
 interface Store {
   value: GitStatusResult;
@@ -39,12 +39,13 @@ function sameEntries(left: GitStatusResult["entries"], right: GitStatusResult["e
 }
 
 function sameResult(left: GitStatusResult, right: GitStatusResult): boolean {
-  if (left.isRepository !== right.isRepository || left.truncated !== right.truncated) return false;
+  if (left.isRepository !== right.isRepository || left.counts.total !== right.counts.total
+    || left.counts.branch !== right.counts.branch || left.counts.uncommitted !== right.counts.uncommitted) return false;
   if (!sameEntries(left.entries, right.entries)) return false;
   const a = left.branch ?? null;
   const b = right.branch ?? null;
   if (a === null || b === null) return a === b;
-  return a.base === b.base && a.commits === b.commits && sameEntries(a.entries, b.entries);
+  return a.base === b.base && a.pullRequest === b.pullRequest && a.commits === b.commits && sameEntries(a.entries, b.entries);
 }
 
 function storeKey(rootId: string, threadId: string | null): string {
